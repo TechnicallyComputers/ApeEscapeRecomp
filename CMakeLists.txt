@@ -9,8 +9,9 @@ set(PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/psxrecomp-v4" CACHE PATH
 
 include("${PSXRECOMP_ROOT}/runtime/runtime.cmake")
 
-# Current psxrecomp emits the large game translation unit as numbered shards.
-# Keep the monolithic fallback for older/generated source drops.
+# Current psxrecomp emits the large game translation unit as numbered shards
+# (see psxrecomp-v4/SPLITGEN_MIGRATION.md). Keep the monolithic fallback for
+# older/generated source drops.
 file(GLOB GAME_GENERATED_FULL CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/generated/SCUS_944.23_full_[0-9][0-9].c")
 list(SORT GAME_GENERATED_FULL)
@@ -26,7 +27,11 @@ psxrecomp_add_runtime_target(psx-runtime
     GAME_GENERATED_DISPATCH_C "${GAME_GENERATED_DISPATCH}"
     DEBUG_PORT 4480
     WINDOW_TITLE "ApeEscapeRecomp"
-    DEFAULT_BIOS_PATH "${PSXRECOMP_ROOT}/bios/SCPH1001.BIN"
+    # No DEFAULT_BIOS_PATH: an absolute build-machine path must never be baked
+    # into a release exe (runtime.cmake refuses it and warns). Omitting it takes
+    # the framework default "bios/SCPH1001.BIN", which the runtime resolves
+    # relative to the exe — and which now also accepts the region-qualified
+    # "US-PSX-SCPH1001.BIN" spelling (recompiler/include/bios_rom_alias.h).
     DEFAULT_GAME_CONFIG_PATH "game.toml"
     LAUNCHER_BOXART "${CMAKE_SOURCE_DIR}/recomp/launcher/boxart.tga"
     # Per-game executable name so each title's process is distinct (killing/
