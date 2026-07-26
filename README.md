@@ -25,9 +25,10 @@ compiled into a real Windows program that runs the game's own logic on a
 faithful simulation of the PS1 hardware (GPU, SPU, GTE, memory cards) plus the
 real, recompiled PS1 BIOS — no high-level emulation shims.
 
-It does **not** contain the Ape Escape disc image, the PS1 BIOS, generated game
-code, or any decompiled game C. Those are produced locally from your own legally
-obtained assets.
+It does **not** contain the Ape Escape disc image, a retail PS1 BIOS, generated
+game code, or any decompiled game C. Release builds include the MIT-licensed
+OpenBIOS from PCSX-Redux; game data and an optional retail BIOS come from your
+own legally obtained assets.
 
 Important files:
 
@@ -79,7 +80,8 @@ and return to 1x if a demanding scene misses full speed.
 ## Playing
 
 1. Run `ApeEscapeRecomp.exe`. A launcher window opens.
-2. Set your PlayStation BIOS (a legally obtained `SCPH1001.BIN`, 512 KB).
+2. OpenBIOS is selected automatically. Optionally select your legally obtained
+   `SCPH1001.BIN` in the BIOS row.
 3. Set the game disc (a legally obtained Ape Escape (USA, SCUS-94423) image —
    `.cue`+`.bin`, pick the `.cue`). Do **not** convert to a 2048-byte "cooked"
    `.iso`; that discards the XA sectors used for FMV/audio.
@@ -89,7 +91,8 @@ and return to 1x if a demanding scene misses full speed.
 Ape Escape is a dual-analog title — the right stick swings the catch net — so an
 analog controller is strongly recommended. Any plugged pad is auto-bound and
 presented to the game as a DualShock; a keyboard folds onto the analog stick.
-The selected BIOS/disc paths and options are saved next to the exe.
+The disc path, optional retail BIOS choice, and options are saved next to the
+exe. Clear the BIOS row to return to OpenBIOS.
 
 ## Development Rules
 
@@ -106,10 +109,10 @@ PolyForm Noncommercial 1.0.0. See `LICENSE`.
 
 Ape Escape is copyright Sony Computer Entertainment / SIE. This repository
 contains none of the game's original binaries or assets. Release packages
-contain no game assets, no disc data, and no BIOS image — those are always read
-from files you supply. The release executable contains a statically recompiled
-(machine-translated) build of the game's code, the same distribution model used
-by other static recompilation projects such as N64: Recompiled.
+include PCSX-Redux OpenBIOS under the MIT notice in
+`bios/OpenBIOS.LICENSE`; they contain no retail BIOS, game assets, or disc data.
+The release executable contains a statically recompiled (machine-translated)
+build of the game's code.
 
 ---
 

@@ -55,6 +55,16 @@ if (-not (Test-Path $DevExe)) { $DevExe = Join-Path $BuildPath "psx-runtime.exe"
 Copy-Item $DevExe (Join-Path $Stage "ApeEscapeRecomp.exe")
 if (Test-Path (Join-Path $Root "README.md"))         { Copy-Item (Join-Path $Root "README.md") $Stage }
 if (Test-Path (Join-Path $Root "LICENSE"))           { Copy-Item (Join-Path $Root "LICENSE") $Stage }
+$BundledBiosSrc = Join-Path $BuildPath "bios"
+if (!(Test-Path (Join-Path $BundledBiosSrc "openbios.bin")) -or
+    (Get-Item (Join-Path $BundledBiosSrc "openbios.bin")).Length -ne 524288 -or
+    !(Test-Path (Join-Path $BundledBiosSrc "OpenBIOS.LICENSE"))) {
+    throw "Runtime build did not stage OpenBIOS and its MIT notice"
+}
+$BundledBiosDst = Join-Path $Stage "bios"
+New-Item -ItemType Directory -Force $BundledBiosDst | Out-Null
+Copy-Item (Join-Path $BundledBiosSrc "openbios.bin") $BundledBiosDst
+Copy-Item (Join-Path $BundledBiosSrc "OpenBIOS.LICENSE") $BundledBiosDst
 if (Test-Path (Join-Path $Root "RELEASE_NOTES.md"))  { Copy-Item (Join-Path $Root "RELEASE_NOTES.md") $Stage }
 
 # Launcher assets: this build ships the shared recomp-ui Dear ImGui launcher
@@ -109,15 +119,14 @@ Ape Escape boots from the PlayStation BIOS and plays into its 3D title and
 gameplay. This is a very early first preview (v0.0.1) -- a full playthrough has
 not been verified, so expect rough edges.
 
-This package does not include the Ape Escape disc, the PlayStation BIOS, or any
-game assets -- you supply those from your own collection, and ApeEscapeRecomp
-asks for them one at a time. The executable contains a statically recompiled
-(machine-translated) build of the game's code, the same distribution model used
-by other static recompilation projects such as N64: Recompiled.
+This package includes the MIT-licensed OpenBIOS from PCSX-Redux and its notice
+in bios/OpenBIOS.LICENSE. It does not include the Ape Escape disc, a retail
+PlayStation BIOS, save data, or game assets.
 
 First launch:
 1. Run ApeEscapeRecomp.exe. A launcher window opens.
-2. Set your PlayStation BIOS: your legally obtained SCPH1001.BIN (512 KB).
+2. OpenBIOS is selected automatically. You may optionally select your legally
+   obtained SCPH1001.BIN in the BIOS row.
 3. Set the game disc: your legally obtained Ape Escape (USA, SCUS-94423) image.
 4. Adjust options if you like, then press Launch.
 
