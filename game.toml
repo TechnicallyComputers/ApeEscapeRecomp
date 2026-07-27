@@ -99,6 +99,71 @@ bias_sites  = ["0x80059d28", "0x800699f4", "0x8006ae04", "0x8006d87c",
 range_sites = ["0x80059d30", "0x800699fc", "0x8006ae0c", "0x8006d884",
                "0x8006de44", "0x8006f150", "0x8006f540", "0x80084434"]
 
+# The shared world-model funnel rejects a model when its GTE-transformed
+# origin lies outside the original horizontal frustum (abs(X) > Z / 2).
+# Native-wide projection reveals a larger horizontal frustum, so preserve both
+# horizontal comparisons in each typed model path while 4:3 continues to
+# execute every original result.
+[[widescreen.cull.keep]]
+address = "0x80017228"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017238"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017414"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017424"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017580"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017590"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017798"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x800177A8"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x800179B4"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x800179C4"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017BF0"
+expected = "0x0082102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80017C00"
+expected = "0x0082102A"
+result = 0
+
 # Controller defaults. Ape Escape is a dual-analog title — the whole monkey-net /
 # movement scheme is built around the DualShock's two analog sticks, so the game
 # expects an analog-capable pad (id 0x73) to be present. Present a DualShock by
