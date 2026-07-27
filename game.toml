@@ -71,9 +71,11 @@ gte_game_mode = true
 # produces severe geometry wedges here, so do not opt Ape into that path.
 native_wide = false
 
-# Correct small textured screen-space quads/rectangles before the final wide
-# presentation stretch. Large backdrop planes and projected/non-axis-aligned
-# world geometry are excluded; repeating glyph/icon rows share one anchor.
+# Pre-scan each current GPU ordering table and proportion-correct eligible
+# textured UI in its highest populated layer before the final wide stretch.
+# Complete glyph/icon runs share one anchor, so centred text and right-corner
+# counters cannot split at thirds boundaries. Depth-sorted world packets,
+# trailing empty OT buckets, and large backdrop planes are excluded.
 auto_ui_squash = true
 
 [widescreen.dome]

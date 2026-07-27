@@ -81,7 +81,7 @@ and Tomba (1).
 
 ---
 
-## #5 — Widescreen: HUD / UI elements are stretched — OPEN
+## #5 — Widescreen: HUD / UI elements are stretched — FIXED
 
 On the projection-and-stretch widescreen path, 3D geometry is squashed at GTE
 projection time so the final frame stretch restores its proportions. Screen-space
@@ -100,9 +100,10 @@ widescreen build.
   squash around centre would end it at ~341); cookie stack starts at x=7 (squash
   would put it at ~31). Both sit at authored 4:3 positions in the squashed frame.
 - HUD packets are heap-allocated inline with world packets (single per-frame
-  arena; addresses shift frame to frame; submission order interleaved) — no
-  address- or order-based classifier exists. The pause menu is the exception
-  (dedicated static arena ~0xCA000-0xCBxxx, world not redrawn while paused).
+  arena; addresses shift frame to frame; absolute submission order is
+  interleaved), so neither packet address nor a flat command index is a stable
+  classifier. The pause menu is the exception (dedicated static arena
+  ~0xCA000-0xCBxxx, world not redrawn while paused).
 - Producer map (wtrace writers → generated-C call graph):
   `func_8005BF70` (2588 B, jump-table-invoked, no static JAL callers) is the
   UI/HUD orchestrator. It calls the gadget-cross drawer `0x80043A8C` (dedicated,
@@ -118,6 +119,36 @@ draw paths. A 21:9 gameplay capture also showed squashed Spike and unacceptable
 scene gaps. Those per-game hooks are disabled. The replacement must distinguish
 GTE-projected geometry from screen-space UI at the submitted packet itself and
 must pass paired 4:3 / 16:9 / 21:9 image checks before this issue is closed.
+
+**Fixed 2026-07-27.** The framework now implements the `auto_ui_squash`
+configuration already selected by Ape. Before a GPU DMA linked list is
+executed, a read-only pass finds the highest ordering-table rank that actually
+contains eligible textured UI. It groups adjacent glyphs/icons by texture and
+screen row, computes the complete run bounds, and assigns one left/centre/right
+anchor to every primitive in that run. The streamed GP0 commands are then
+proportion-corrected around that shared anchor. This removes the old per-glyph
+thirds decision that pulled the first and last letters of centred text in
+opposite directions.
+
+The classifier uses current-frame submission provenance rather than guest
+function names, packet addresses, or one-frame-old geometry. Depth-sorted world
+packets (including Spike) are below the selected UI layer, large backdrops are
+excluded, and trailing empty ordering-table buckets no longer hide the real
+front layer.
+
+Validated on OpenGL with:
+
+- 16:9 instruction text (`Capture 3 monkeys`), gameplay HUD, pause wheel, exit
+  confirmation, and captured-monkey counter;
+- 21:9 gameplay HUD and captured-monkey icons;
+- the load/memory-card screen, which Ape's existing full-2D detector safely
+  returns to 4:3 so its file names, percentages, and centred rows remain
+  coherent; and
+- widescreen disabled, where the 4:3 path reports identity squash and zero UI
+  transforms.
+
+The grouping math has a standalone regression test covering centred glyph
+runs, right-edge icon runs, separated left/right runs, and dense menu anchoring.
 
 ---
 

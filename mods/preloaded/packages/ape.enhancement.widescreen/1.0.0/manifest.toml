@@ -13,7 +13,7 @@ disc_sha256 = "1ae17e78ebb8c782c7c1785b0a0bd7b0ee28235b8a0c83c8df887129899a852a"
 
 [[feature]]
 id = "widescreen"
-name = "Widescreen"
+name = "Widescreen (Experimental)"
 description = "Enable Ape Escape's experimental widescreen rendering and choose a fixed or resize-driven aspect."
 group = "Display"
 default_enabled = false

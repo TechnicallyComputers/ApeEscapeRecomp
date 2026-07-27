@@ -76,9 +76,10 @@ The launcher's **Mods** page includes two default-off experiments:
   uses the OpenGL renderer and may show crossfade ghosting on fast motion.
 
 The widescreen mod uses Ape Escape's stable GTE projection-and-stretch path
-for a wider 3D field of view. UI proportion, character projection, and
-scene-culling regressions are still under active validation and are tracked in
-[`ISSUES.md`](ISSUES.md). With the mod disabled, 4:3 presentation is unchanged.
+for a wider 3D field of view. HUD/UI proportion correction is enabled for its
+front ordering-table layer; remaining draw-distance and scene-culling limits
+are tracked in [`ISSUES.md`](ISSUES.md). With the mod disabled, 4:3
+presentation is unchanged.
 
 The launcher's Video page exposes **Supersampling (1x-4x)**,
 **Antialiasing**, and **Texture filtering**. On OpenGL, supersampling is true
