@@ -99,6 +99,20 @@ bias_sites  = ["0x80059d28", "0x800699f4", "0x8006ae04", "0x8006d87c",
 range_sites = ["0x80059d30", "0x800699fc", "0x8006ae0c", "0x8006d884",
                "0x8006de44", "0x8006f150", "0x8006f540", "0x80084434"]
 
+# The terrain-grid renderer separately rejects whole 0x400-unit cells against
+# its original horizontal cone and absolute-X cap before any terrain polygon
+# reaches the screen-space funnel below. Widescreen should submit every
+# horizontal cell candidate; retain its depth/behind-camera rejection.
+[[widescreen.cull.keep]]
+address = "0x80043D70"
+expected = "0x0062102A"
+result = 0
+
+[[widescreen.cull.keep]]
+address = "0x80043D94"
+expected = "0x28821001"
+result = 1
+
 # The shared world-model funnel rejects a model when its GTE-transformed
 # origin lies outside the original horizontal frustum (abs(X) > Z / 2).
 # Native-wide projection reveals a larger horizontal frustum, so preserve both
