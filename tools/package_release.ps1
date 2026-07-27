@@ -80,6 +80,18 @@ $fontCount = (Get-ChildItem (Join-Path $Stage "assets/fonts") -Filter *.ttf -Err
 $imgCount  = (Get-ChildItem (Join-Path $Stage "assets/img")   -Filter *.tga -ErrorAction SilentlyContinue).Count
 Write-Host "Bundled recomp-ui launcher assets: $fontCount font(s) + $imgCount image(s)"
 
+# Built-in mod catalog staged by the runtime target's POST_BUILD command.
+$ModsSrc = Join-Path $BuildPath "mods"
+if (-not (Test-Path (Join-Path $ModsSrc "packages"))) {
+    throw "Built-in Ape Escape mod catalog missing at $ModsSrc"
+}
+Copy-Item -Recurse -Force $ModsSrc (Join-Path $Stage "mods")
+$modCount = (Get-ChildItem (Join-Path $Stage "mods/packages") -Filter manifest.toml -Recurse).Count
+if ($modCount -ne 2) {
+    throw "Expected 2 built-in Ape Escape mod manifests, found $modCount"
+}
+Write-Host "Bundled Ape Escape mod catalog: $modCount package(s)"
+
 # Player-facing game.toml: copy the REAL game.toml (the single source of truth
 # for all runtime/video/controller/widescreen config) minus the dev-only [audit]
 # section, so the shipped config can never drift from what was validated.
@@ -128,7 +140,8 @@ First launch:
 2. OpenBIOS is selected automatically. You may optionally select your legally
    obtained SCPH1001.BIN in the BIOS row.
 3. Set the game disc: your legally obtained Ape Escape (USA, SCUS-94423) image.
-4. Adjust options if you like, then press Launch.
+4. Adjust options and choose any default-off experiments on the Mods page,
+   then press Launch.
 
 Ape Escape requires an analog (DualShock) controller -- a controller is
 strongly recommended. The selected BIOS/disc paths are saved next to the exe.

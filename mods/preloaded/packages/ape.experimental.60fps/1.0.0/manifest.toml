@@ -1,0 +1,73 @@
+format_version = 5
+id = "ape.experimental.60fps"
+version = "1.0.0"
+name = "Ape Escape Frame Rate"
+author = "mstan"
+description = "Presentation-only interpolated frame-rate modes. Game logic, timers, and audio remain at their stock cadence."
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "SCUS-94423"
+disc_sha256 = "1ae17e78ebb8c782c7c1785b0a0bd7b0ee28235b8a0c83c8df887129899a852a"
+
+[[feature]]
+id = "native-60fps"
+name = "Interpolated Frame Rate (Experimental)"
+description = "Blend completed game frames at the selected output rate without accelerating gameplay, timers, or audio."
+group = "Frame Rate"
+default_enabled = false
+
+[[option]]
+feature = "native-60fps"
+id = "rate"
+label = "Frame rate"
+description = "Presentation rate only; the original game simulation remains untouched. Requires the OpenGL renderer."
+group = "Frame Rate"
+type = "choice"
+default = "60"
+
+[[option.choice]]
+value = "60"
+label = "60 FPS"
+
+[[option.choice]]
+value = "120"
+label = "120 FPS"
+
+[[option.choice]]
+value = "144"
+label = "144 FPS"
+
+[[option.choice]]
+value = "165"
+label = "165 FPS"
+
+[[option.choice]]
+value = "uncapped"
+label = "Uncapped"
+
+[[plugin]]
+feature = "native-60fps"
+id = "ape.framerate.60"
+when = { rate = "60" }
+
+[[plugin]]
+feature = "native-60fps"
+id = "ape.framerate.120"
+when = { rate = "120" }
+
+[[plugin]]
+feature = "native-60fps"
+id = "ape.framerate.144"
+when = { rate = "144" }
+
+[[plugin]]
+feature = "native-60fps"
+id = "ape.framerate.165"
+when = { rate = "165" }
+
+[[plugin]]
+feature = "native-60fps"
+id = "ape.framerate.uncapped"
+when = { rate = "uncapped" }

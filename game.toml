@@ -48,13 +48,19 @@ supersampling = 2
 antialiasing = true
 texture_filtering = "nearest"
 
-# Widescreen ships OFF (authentic 4:3); the launcher's experimental Widescreen
-# toggle / settings.toml opts into 16:9 native-wide at runtime.
+# Authentic 4:3 is the baseline. Ape Escape's game-specific widescreen modes
+# are selected from the built-in Mods catalog rather than generic Video settings.
 aspect_ratio = "4:3"
 
 [widescreen]
+# This title owns widescreen activation through its mod package. Hide the legacy
+# aspect control and clamp stale settings before the selected mod activates.
+offer = false
 # Offer both 16:9 and 21:9 in the launcher (Ape Escape is full-3D, ultrawide-friendly).
 offer_ultrawide = true
+# Allow the Widescreen mod's Adaptive choice to follow the live window aspect,
+# capped at 21:9.
+adaptive_view = true
 # Ape Escape is fully 3D with no per-prim sprite-tag helper: gameplay frames
 # are detected by GTE activity (RTPS/RTPT projections per frame). Genuine
 # full-2D screens still pillarbox 4:3.

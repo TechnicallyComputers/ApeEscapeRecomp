@@ -13,6 +13,7 @@ XA sectors PSX uses for streaming FMV/audio.
 | CRC32 | `C6F455BC` (per Redump) |
 | MD5 | `DE4E7AB78C08BD03712E83C14D4CF642` |
 | SHA-1 | `466CCE4BCD6992F57227ABD270323BCDAD2FB7FC` |
+| SHA-256 | `1AE17E78EBB8C782C7C1785B0A0BD7B0EE28235B8A0C83C8DF887129899A852A` |
 
 Verified 2026-05-28: locally computed SHA-1/MD5 match the Redump database entry
 for Ape Escape (USA). This is the only USA release — no revisions.

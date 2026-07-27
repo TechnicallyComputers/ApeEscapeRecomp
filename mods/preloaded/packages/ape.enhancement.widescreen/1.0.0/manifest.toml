@@ -1,0 +1,55 @@
+format_version = 5
+id = "ape.enhancement.widescreen"
+version = "1.0.0"
+name = "Ape Escape Widescreen"
+author = "mstan"
+description = "Renders Ape Escape with a wider field of view using its game-specific projection, culling, UI, and title-dome hooks."
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "SCUS-94423"
+disc_sha256 = "1ae17e78ebb8c782c7c1785b0a0bd7b0ee28235b8a0c83c8df887129899a852a"
+
+[[feature]]
+id = "widescreen"
+name = "Widescreen"
+description = "Enable Ape Escape's experimental widescreen rendering and choose a fixed or resize-driven aspect."
+group = "Display"
+default_enabled = false
+
+[[option]]
+feature = "widescreen"
+id = "aspect"
+label = "Aspect ratio"
+description = "Adaptive follows the live window size from 4:3 through 21:9."
+group = "Display"
+type = "choice"
+default = "16:9"
+
+[[option.choice]]
+value = "16:9"
+label = "16:9"
+
+[[option.choice]]
+value = "21:9"
+label = "21:9"
+
+[[option.choice]]
+value = "adaptive"
+label = "Adaptive"
+
+[[plugin]]
+feature = "widescreen"
+id = "ape.widescreen.16-9"
+when = { aspect = "16:9" }
+
+[[plugin]]
+feature = "widescreen"
+id = "ape.widescreen.21-9"
+when = { aspect = "21:9" }
+
+[[plugin]]
+feature = "widescreen"
+id = "ape.widescreen.adaptive"
+when = { aspect = "adaptive" }

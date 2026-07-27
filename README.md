@@ -33,6 +33,7 @@ own legally obtained assets.
 Important files:
 
 - `game.toml`: runtime / recompiler / video / controller / widescreen config.
+- `mods/preloaded/`: built-in, default-off mod packages shown by the launcher.
 - `seeds/`: Ghidra-derived function starts and game-specific seed data.
 - `tools/regen.ps1`: regenerates the recompiled C output.
 - `tools/package_release.ps1`: builds the redistributable release zip.
@@ -56,17 +57,28 @@ so treat it as a very playable preview rather than a certified full playthrough.
 | Controller | ✅ DualShock analog (auto-bound; the net/movement scheme is dual-stick) |
 | Memory cards | ✅ Standard PS1 `.mcd` save/load |
 | FMV / audio | ✅ MDEC video + XA/SPU audio (auto-skip FMV optional) |
-| Widescreen 16:9 / 21:9 | ⚠️ Experimental (opt-in) — see below |
+| Mods | ✅ Built-in catalog with widescreen and frame-interpolation experiments |
+| Widescreen 16:9 / 21:9 / Adaptive | ⚠️ Experimental (opt-in) — see below |
+| Interpolated frame rate | ⚠️ Experimental 60 / 120 / 144 / 165 / Uncapped picker |
 | Full playthrough | ⚠️ Not yet verified end-to-end |
 
-### Experimental widescreen
+### Built-in mods
 
-An **experimental 16:9 / 21:9 mode** is available in the launcher (off by
-default; the game ships authentic 4:3). It uses the stable GTE
-projection-and-stretch path for a wider 3D field of view. UI proportion,
-character projection, and scene-culling regressions are still under active
-validation and are tracked in [`ISSUES.md`](ISSUES.md). Regular 4:3 play is
-byte-for-byte the original presentation and is unaffected.
+The launcher's **Mods** page includes two default-off experiments:
+
+- **Ape Escape Widescreen** moves the existing game-specific enhancement out
+  of generic Video settings. Its picker offers **16:9**, **21:9**, and
+  **Adaptive** (live window aspect from 4:3 through 21:9).
+- **Ape Escape Frame Rate** leaves the game's executable and stock simulation
+  cadence untouched, then offers presentation-only interpolation at **60**,
+  **120**, **144**, **165**, and **Uncapped**. Game logic, animation, physics,
+  timers, and audio therefore remain at their original speed. This experiment
+  uses the OpenGL renderer and may show crossfade ghosting on fast motion.
+
+The widescreen mod uses Ape Escape's stable GTE projection-and-stretch path
+for a wider 3D field of view. UI proportion, character projection, and
+scene-culling regressions are still under active validation and are tracked in
+[`ISSUES.md`](ISSUES.md). With the mod disabled, 4:3 presentation is unchanged.
 
 The launcher's Video page exposes **Supersampling (1x-4x)**,
 **Antialiasing**, and **Texture filtering**. On OpenGL, supersampling is true
@@ -85,7 +97,7 @@ and return to 1x if a demanding scene misses full speed.
 3. Set the game disc (a legally obtained Ape Escape (USA, SCUS-94423) image —
    `.cue`+`.bin`, pick the `.cue`). Do **not** convert to a 2048-byte "cooked"
    `.iso`; that discards the XA sectors used for FMV/audio.
-4. Adjust options if you like (renderer, supersampling, experimental widescreen),
+4. Adjust display options and select any experiments on the **Mods** page,
    then press **Launch**.
 
 Ape Escape is a dual-analog title — the right stick swings the catch net — so an
