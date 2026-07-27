@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
             return fail("manifest parse failed: " + error);
         }
     }
-    if (manifest_count != 2) return fail("expected two package manifests");
+    if (manifest_count != 3) return fail("expected three package manifests");
 
     PSXRecompV4::mod_clear_plugins_for_tests();
     for (const char* id : {
@@ -57,7 +57,8 @@ int main(int argc, char** argv) {
              "ape.framerate.120",
              "ape.framerate.144",
              "ape.framerate.165",
-             "ape.framerate.uncapped"}) {
+             "ape.framerate.uncapped",
+             "ape.fmv.skip"}) {
         if (!PSXRecompV4::mod_register_activation_plugin(id, no_op_plugin))
             return fail(std::string("could not register test plugin ") + id);
     }
@@ -66,13 +67,18 @@ int main(int argc, char** argv) {
     std::string error;
     if (!manager.scan(&error)) return fail("catalog scan failed: " + error);
     if (!manager.load_state(&error)) return fail("default state failed: " + error);
-    if (manager.packages().size() != 2)
-        return fail("expected two package families");
+    if (manager.packages().size() != 3)
+        return fail("expected three package families");
 
     const auto default_plan = manager.resolve(kGameId, "", kDiscSha256);
     if (!default_plan.ok || !default_plan.writes.empty() ||
-        !default_plan.plugins.empty()) {
-        return fail("default-disabled catalog produced runtime operations");
+        default_plan.plugins.size() != 1 ||
+        default_plan.plugins.front().id != "ape.fmv.skip") {
+        return fail("default catalog did not preserve Skip FMVs");
+    }
+    if (!manager.set_feature_enabled(
+            "ape.enhancement.skip-fmvs", "skip-fmvs", false, &error)) {
+        return fail(error);
     }
 
     if (!manager.set_feature_enabled(
@@ -122,8 +128,8 @@ int main(int argc, char** argv) {
     }
 
     fs::remove_all(root, ec);
-    std::cout << "Ape Escape preloaded mods: 2 packages, "
+    std::cout << "Ape Escape preloaded mods: 3 packages, "
                  "3 widescreen choices, 5 interpolated frame-rate choices, "
-                 "stock guest code untouched\n";
+                 "Skip FMVs migrated from Settings, stock guest code untouched\n";
     return 0;
 }

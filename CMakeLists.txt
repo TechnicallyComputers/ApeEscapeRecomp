@@ -58,13 +58,13 @@ endif()
 if(BUILD_TESTING)
     add_executable(ape_preloaded_mods_test
         tests/test_preloaded_mods.cpp
-        psxrecomp-v4/runtime/src/mod_packages.cpp
-        psxrecomp-v4/runtime/src/crc32.c
-        psxrecomp-v4/runtime/src/psx_sha256.c
+        "${PSXRECOMP_ROOT}/runtime/src/mod_packages.cpp"
+        "${PSXRECOMP_ROOT}/runtime/src/crc32.c"
+        "${PSXRECOMP_ROOT}/runtime/src/psx_sha256.c"
     )
     target_include_directories(ape_preloaded_mods_test PRIVATE
-        psxrecomp-v4/runtime/include
-        psxrecomp-v4/recompiler/lib/toml11
+        "${PSXRECOMP_ROOT}/runtime/include"
+        "${PSXRECOMP_ROOT}/recompiler/lib/toml11"
     )
     add_test(
         NAME ape_preloaded_mods_test

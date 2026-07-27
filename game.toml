@@ -30,10 +30,15 @@ bios_hle = true
 [video]
 # Auto-skip FMVs: when a streaming movie (XA audio + MDEC) is detected, run it
 # uncapped and muted so it blows through in a fraction of a second instead of
-# playing in full. Default-on for Ape Escape per user preference. (Ape has no
-# per-movie frame-total table wired yet, so this fast-forwards the movie rather
-# than truncating it on frame 1; that is the general/universal skip path.)
-auto_skip_fmv = true
+# playing in full. Ape has no per-movie frame-total table wired yet, so this
+# fast-forwards the movie rather than truncating it on frame 1; that is the
+# general/universal skip path. The feature is selected from Mods, not Settings.
+auto_skip_fmv = false
+offer_skip_fmv = false
+
+# Ape owns presentation interpolation through its built-in Frame Rate mod.
+# Hide the generic Display controls and ignore stale settings.toml values.
+offer_frame_interpolation = false
 
 # OpenGL renderer by default (validated for Ape: native-wide widescreen + the
 # GL compositor perf fix). The launcher's Renderer setting still offers Software.

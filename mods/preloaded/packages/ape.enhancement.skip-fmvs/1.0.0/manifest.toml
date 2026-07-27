@@ -1,0 +1,23 @@
+format_version = 5
+id = "ape.enhancement.skip-fmvs"
+version = "1.0.0"
+name = "Ape Escape FMV Skipping"
+author = "mstan"
+description = "Fast-forwards full-motion videos while preserving their normal game-side completion behavior."
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "SCUS-94423"
+disc_sha256 = "1ae17e78ebb8c782c7c1785b0a0bd7b0ee28235b8a0c83c8df887129899a852a"
+
+[[feature]]
+id = "skip-fmvs"
+name = "Skip FMVs"
+description = "Mute and rapidly advance full-motion videos instead of playing them in real time."
+group = "Gameplay"
+default_enabled = true
+
+[[plugin]]
+feature = "skip-fmvs"
+id = "ape.fmv.skip"
