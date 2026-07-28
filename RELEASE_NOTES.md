@@ -1,3 +1,27 @@
+# Ape Escape Recompiled — v0.1.1
+
+This patch improves the experimental temporal frame-blending mod and trims the
+launcher package to PlayStation-only assets.
+
+## Frame blending
+
+- Replaces the full-frame linear crossfade with a motion-adaptive clarity
+  blend. Large pixel changes switch cleanly instead of showing two translucent
+  poses, substantially reducing trails around moving characters and scenery.
+- Follows the display refresh by default while retaining fixed 60, 120, 144,
+  and 165 presentation-rate choices for testing.
+- Keeps guest simulation, physics, timers, animation, and audio at their stock
+  cadence. This remains temporal blending rather than motion-vector frame
+  generation.
+
+## Packaging
+
+- Updates recomp-ui's asset staging so the Ape Escape package contains common
+  launcher chrome and PlayStation art only, without controller or cartridge
+  assets belonging to other consoles.
+
+---
+
 # Ape Escape Recompiled — v0.1.0
 
 This release makes Ape Escape substantially smoother to control and present,
