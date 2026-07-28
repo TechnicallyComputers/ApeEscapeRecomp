@@ -126,10 +126,10 @@ int main(int argc, char** argv) {
                         choice);
         }
     }
-
     fs::remove_all(root, ec);
     std::cout << "Ape Escape preloaded mods: 3 packages, "
                  "3 widescreen choices, 5 interpolated frame-rate choices, "
-                 "Skip FMVs migrated from Settings, stock guest code untouched\n";
+                 "motion-adaptive clarity blend, Skip FMVs migrated from Settings, "
+                 "stock guest code untouched\n";
     return 0;
 }

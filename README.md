@@ -43,7 +43,7 @@ Important files:
 
 ## Status
 
-**Playable preview — `v0.1.0`.** Ape Escape **boots from the PS1 BIOS and
+**Playable preview — `v0.1.1`.** Ape Escape **boots from the PS1 BIOS and
 plays** — through the intro, the title, and into gameplay, with dual-analog
 controller input including **L3/R3 stick clicks** (added in v0.0.3), a
 **controls fix** so the analog stick no longer spins the camera (v0.0.5),
@@ -57,9 +57,9 @@ so treat it as a very playable preview rather than a certified full playthrough.
 | Controller | ✅ DualShock analog (auto-bound; the net/movement scheme is dual-stick) |
 | Memory cards | ✅ Standard PS1 `.mcd` save/load |
 | FMV / audio | ✅ MDEC video + XA/SPU audio (auto-skip FMV optional) |
-| Mods | ✅ Built-in catalog with widescreen and frame-interpolation experiments |
+| Mods | ✅ Built-in catalog with widescreen and temporal-blending experiments |
 | Widescreen 16:9 / 21:9 / Adaptive | ⚠️ Experimental (opt-in) — see below |
-| Interpolated frame rate | ⚠️ Experimental 60 / 120 / 144 / 165 / Uncapped picker |
+| Temporal frame blending | ⚠️ Experimental display-refresh / 60 / 120 / 144 / 165 picker with motion-adaptive clarity |
 | Full playthrough | ⚠️ Not yet verified end-to-end |
 
 ### Built-in mods
@@ -70,10 +70,11 @@ The launcher's **Mods** page includes three default-off enhancements:
   of generic Video settings. Its picker offers **16:9**, **21:9**, and
   **Adaptive** (live window aspect from 4:3 through 21:9).
 - **Ape Escape Frame Rate** leaves the game's executable and stock simulation
-  cadence untouched, then offers presentation-only interpolation at **60**,
-  **120**, **144**, **165**, and **Uncapped**. Game logic, animation, physics,
-  timers, and audio therefore remain at their original speed. This experiment
-  uses the OpenGL renderer and may show crossfade ghosting on fast motion.
+  cadence untouched, then blends completed frames at the **display refresh**
+  (recommended) or a fixed **60**, **120**, **144**, or **165** presentation
+  rate. **Clarity** mode suppresses blending on large pixel changes to reduce
+  double-image trails. This is temporal blending, not motion-vector frame
+  generation, so it cannot reconstruct true in-between object positions.
 - **Skip FMVs** ends movies through the game's normal completion path.
 
 The widescreen mod uses Ape Escape's stable GTE projection-and-stretch path

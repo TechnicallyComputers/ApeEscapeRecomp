@@ -1,9 +1,9 @@
 format_version = 5
 id = "ape.experimental.60fps"
-version = "1.0.0"
+version = "1.0.1"
 name = "Ape Escape Frame Rate"
 author = "mstan"
-description = "Presentation-only interpolated frame-rate modes. Game logic, timers, and audio remain at their stock cadence."
+description = "Presentation-only temporal frame blending. Game logic, timers, and audio remain at their stock cadence."
 resolver = "declarative"
 save_compatibility = "shared"
 
@@ -13,19 +13,19 @@ disc_sha256 = "1ae17e78ebb8c782c7c1785b0a0bd7b0ee28235b8a0c83c8df887129899a852a"
 
 [[feature]]
 id = "native-60fps"
-name = "Interpolated Frame Rate (Experimental)"
-description = "Blend completed game frames at the selected output rate without accelerating gameplay, timers, or audio."
+name = "Temporal Frame Blending (Experimental)"
+description = "Blend completed game frames at the selected presentation rate without accelerating gameplay, timers, or audio. This is not motion-vector frame generation."
 group = "Frame Rate"
 default_enabled = false
 
 [[option]]
 feature = "native-60fps"
 id = "rate"
-label = "Frame rate"
-description = "Presentation rate only; the original game simulation remains untouched. Requires the OpenGL renderer."
+label = "Presentation rate"
+description = "Follow the display for even cadence, or choose a fixed diagnostic rate. The original game simulation remains untouched. Requires OpenGL."
 group = "Frame Rate"
 type = "choice"
-default = "60"
+default = "uncapped"
 
 [[option.choice]]
 value = "60"
@@ -45,7 +45,7 @@ label = "165 FPS"
 
 [[option.choice]]
 value = "uncapped"
-label = "Uncapped"
+label = "Display refresh (Recommended)"
 
 [[plugin]]
 feature = "native-60fps"
