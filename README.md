@@ -43,7 +43,7 @@ Important files:
 
 ## Status
 
-**Playable preview — `v0.0.5-alpha`.** Ape Escape **boots from the PS1 BIOS and
+**Playable preview — `v0.1.0`.** Ape Escape **boots from the PS1 BIOS and
 plays** — through the intro, the title, and into gameplay, with dual-analog
 controller input including **L3/R3 stick clicks** (added in v0.0.3), a
 **controls fix** so the analog stick no longer spins the camera (v0.0.5),
@@ -64,7 +64,7 @@ so treat it as a very playable preview rather than a certified full playthrough.
 
 ### Built-in mods
 
-The launcher's **Mods** page includes two default-off experiments:
+The launcher's **Mods** page includes three default-off enhancements:
 
 - **Ape Escape Widescreen** moves the existing game-specific enhancement out
   of generic Video settings. Its picker offers **16:9**, **21:9**, and
@@ -74,6 +74,7 @@ The launcher's **Mods** page includes two default-off experiments:
   **120**, **144**, **165**, and **Uncapped**. Game logic, animation, physics,
   timers, and audio therefore remain at their original speed. This experiment
   uses the OpenGL renderer and may show crossfade ghosting on fast motion.
+- **Skip FMVs** ends movies through the game's normal completion path.
 
 The widescreen mod uses Ape Escape's stable GTE projection-and-stretch path
 for a wider 3D field of view. HUD/UI proportion correction is enabled for its

@@ -1,3 +1,42 @@
+# Ape Escape Recompiled — v0.1.0
+
+This release makes Ape Escape substantially smoother to control and present,
+and moves its optional enhancements into the launcher's Mods catalog.
+
+## Controls and presentation
+
+- **Better joystick response.** Both sticks now use a radial response tuned
+  around Ape Escape's own internal deadzone. Movement speed scales linearly
+  from the edge of the host deadzone to full travel, cardinal and diagonal
+  inputs reach the same speed, and gadget aiming preserves its direction
+  without diagonal notching.
+- **Frame interpolation.** The default-off Interpolated Frame Rate mod offers
+  60, 120, 144, 165, and uncapped presentation while leaving game logic,
+  physics, timers, and audio at the original cadence.
+- **Better widescreen culling.** World models and terrain cells stay active
+  across the wider frustum, substantially reducing side-of-screen pop-in.
+  Grouped front-layer HUD correction also keeps more UI at the intended
+  proportions.
+
+## Mods and runtime
+
+- Widescreen, interpolation, and Skip FMVs are now built-in, default-off
+  packages on the launcher's **Mods** page.
+- Widescreen offers 16:9, 21:9, and Adaptive modes; Adaptive follows the live
+  window aspect from 4:3 through 21:9.
+- OpenBIOS is included and selected by default. You can still choose your own
+  legally obtained retail BIOS.
+- The launcher and runtime include the latest mod-owned settings and renderer
+  UI fixes.
+
+## Before playing
+
+Supply your own legally obtained Ape Escape (USA, SCUS-94423) disc image. It is
+not included. This remains an in-development preview, so keep your saves backed
+up and report any game-specific regressions.
+
+---
+
 # Ape Escape Recompiled — v0.0.6-alpha
 
 Ape Escape boots from the real PlayStation BIOS and **plays** as a native

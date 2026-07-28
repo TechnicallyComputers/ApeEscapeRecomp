@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "v0.0.1",
+    [string]$Version = "v0.1.0",
     [string]$BuildDir = "build-release"
 )
 
@@ -87,8 +87,8 @@ if (-not (Test-Path (Join-Path $ModsSrc "packages"))) {
 }
 Copy-Item -Recurse -Force $ModsSrc (Join-Path $Stage "mods")
 $modCount = (Get-ChildItem (Join-Path $Stage "mods/packages") -Filter manifest.toml -Recurse).Count
-if ($modCount -ne 2) {
-    throw "Expected 2 built-in Ape Escape mod manifests, found $modCount"
+if ($modCount -ne 3) {
+    throw "Expected 3 built-in Ape Escape mod manifests, found $modCount"
 }
 Write-Host "Bundled Ape Escape mod catalog: $modCount package(s)"
 
@@ -128,8 +128,8 @@ Write-Host "Verified self-contained: imports only system DLLs ($($imports.Count)
 ApeEscapeRecomp $Version
 
 Ape Escape boots from the PlayStation BIOS and plays into its 3D title and
-gameplay. This is a very early first preview (v0.0.1) -- a full playthrough has
-not been verified, so expect rough edges.
+gameplay. This is an in-development preview; a full playthrough has not been
+verified, so expect rough edges.
 
 This package includes the MIT-licensed OpenBIOS from PCSX-Redux and its notice
 in bios/OpenBIOS.LICENSE. It does not include the Ape Escape disc, a retail
