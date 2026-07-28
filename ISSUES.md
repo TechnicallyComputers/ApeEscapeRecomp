@@ -152,6 +152,41 @@ runs, right-edge icon runs, separated left/right runs, and dense menu anchoring.
 
 ---
 
+## #6 — Widescreen: circus balls pop/cull during the rendered title sequence — OPEN
+
+Near the beginning of the title/attract sequence, when Spike puts on his hat,
+the circus balls can appear or disappear within the visible 21:9 frame. This is
+not an FMV: it is a live rendered scene, and the original timing only guarantees
+that these objects enter outside the 4:3 viewport.
+
+**Investigation stopping point (2026-07-28):**
+
+- The title overlay is loaded at `0x80136000`. Its event loop dispatches object
+  record opcode `0x0F` through the handler at `0x80138404`, which ultimately
+  submits the object through `0x800160EC`.
+- The first identified circus-ball object is table index 16, object pointer
+  `0x800BFAC0`. In an unmodified control run its first submission occurs at
+  title-local frame 153 (host frame 1815). The exact 36-byte stream record was
+  captured, so this path can be recognized again without repeating the broad
+  search.
+- A narrowly guarded experiment appended that record to queued title-stream
+  blocks only for widescreen and only during title-local frames 120–152. It
+  moved the first submission to frame 121, while the 4:3 control remained at
+  frame 153.
+- That experiment is **not accepted as a fix** and was removed. Moving the
+  first submission earlier does not prove that the object follows the correct
+  earlier trajectory or culling state, and the observed result was inconsistent:
+  the latest run visibly culled the balls, while an earlier run appeared to
+  handle their culling better.
+
+Before resuming, compare the exact widescreen/culling configuration and build
+state from the better-looking run against the latest run. Capture paired frames
+around the hat animation and trace both ball objects, including their changing
+transforms and visibility decisions. Do not treat an earlier static submission
+by itself as closure.
+
+---
+
 ## Notes
 
 - These are **enhancement-tier** items on the experimental widescreen path.
