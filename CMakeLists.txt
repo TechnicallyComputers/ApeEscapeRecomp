@@ -56,6 +56,21 @@ if(EXISTS "${APE_PRELOADED_MODS}/packages")
 endif()
 
 if(BUILD_TESTING)
+    add_executable(ape_stick_response_test
+        tests/test_stick_response.c
+        "${PSXRECOMP_ROOT}/runtime/src/psx_stick.c"
+    )
+    target_include_directories(ape_stick_response_test PRIVATE
+        "${PSXRECOMP_ROOT}/runtime/include"
+    )
+    if(NOT MSVC)
+        target_link_libraries(ape_stick_response_test PRIVATE m)
+    endif()
+    add_test(
+        NAME ape_stick_response_test
+        COMMAND "$<TARGET_FILE:ape_stick_response_test>"
+    )
+
     add_executable(ape_preloaded_mods_test
         tests/test_preloaded_mods.cpp
         "${PSXRECOMP_ROOT}/runtime/src/mod_packages.cpp"

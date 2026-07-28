@@ -208,11 +208,13 @@ lock_mode    = true
 # configuration. Any plugged pad (or the keyboard, folded onto the analog stick)
 # drives it; the game always sees a DualShock.
 lock_device  = false
-# Radial (circular) deadzone, so ~12% is plenty — a real DualShock only needs a
-# small centre dead region. The old 30000-ish value was tuned for the previous
-# per-axis SQUARE deadzone (which needed to be large to hide diagonal notching);
-# with the radial deadzone that made the net-aim feel dead. Tune in the launcher.
-deadzone     = 4000
+# Keep a 10% host deadzone for worn-pad drift. Ape Escape applies another radial
+# 21/127 deadzone internally; anti_deadzone begins host output at that threshold
+# and makes the game's resulting speed linear from the edge of the host deadzone
+# to full travel. X/Y remain one radial vector, so cardinals and diagonals have
+# equal speed and the right-stick gadget direction does not notch.
+deadzone      = 3277
+anti_deadzone = 5376
 
 # ── Audit-specific config (consumed by psxrecomp-v4/tools/*.py and tests) ──
 # Schema mirrors psxrecomp-v4/bios/SCPH1001.toml. Paths are relative to the
