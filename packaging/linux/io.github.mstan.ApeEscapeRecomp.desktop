@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ape Escape Recompiled
+Comment=Static recompilation of Ape Escape
+Exec=ApeEscapeRecomp
+Icon=io.github.mstan.ApeEscapeRecomp
+Categories=Game;
+Terminal=false
