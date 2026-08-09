@@ -26,6 +26,15 @@ set(GAME_GENERATED_DISPATCH
 file(GLOB APE_MOD_PLUGIN_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/*.c")
 
+# Optional weak stubs so mid-rollback psxrecomp tips (declare mod APIs in
+# headers but omit definitions) still link against current Ape plugins.
+option(APE_BISECT_WEAK_STUBS
+    "Link weak psx_mod_* stubs for bisecting older psxrecomp tips" OFF)
+if(APE_BISECT_WEAK_STUBS)
+    list(APPEND APE_MOD_PLUGIN_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/ape_bisect_mod_stubs.c")
+endif()
+
 psxrecomp_add_runtime_target(psx-runtime
     GAME_GENERATED_FULL_C "${GAME_GENERATED_FULL}"
     GAME_GENERATED_DISPATCH_C "${GAME_GENERATED_DISPATCH}"

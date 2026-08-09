@@ -219,6 +219,7 @@ anti_deadzone = 5376
 # ── Audit-specific config (consumed by psxrecomp-v4/tools/*.py and tests) ──
 # Schema mirrors psxrecomp-v4/bios/SCPH1001.toml. Paths are relative to the
 # project root.
+multitap_analog = false
 
 [audit]
 # Dynamic discovery — functions are found by walking control flow from
