@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """Headless Ape Escape title → LOAD GAME memcard oracle (PASS/FAIL).
 
+IMPORTANT: this is the regression gate for offline LOAD GAME. Runtime
+repairs live in psxrecomp-v4 (sio.c / memory.c / bios_hle.c); write-up in
+docs/APE_MEMCARD_LOAD.md. Do not treat mc_read_done alone as success.
+
 Exit codes:
-  0 PASS  — LOAD left the empty starfield after card I/O (real UI recovery)
-  2 FAIL  — card path started but scene stayed on starfield (wedge)
+  0 PASS  — file-list UI (screen=filelist) + CardMenuMode==2 after card I/O
+  2 FAIL  — card path started but still empty Checking starfield
   3 INCONCLUSIVE — never reached LOAD / debug port dead
   4 BUILD/LAUNCH error
 
 Proven sequence (integrate hang repro):
   boot settle → TRIANGLE×4 → START → title → DOWN → CROSS
-  Starfield during directory scan is normal; FAIL only if I/O quiets and
-  the scene is still starfield (mc_read_done alone is a false PASS).
+  Starfield during directory scan is normal. The healthy Load file list
+  keeps a navy starfield *behind* red FileN chrome — classify filelist
+  before starfield. FAIL only if I/O quiets on empty Checking.
 
 Fast bisect mode (APE_MEMCARD_FAST=1):
   After the shared LOAD probe (abort_other after 81 52 00), PASS if a
-  follow-up card txn starts within ~120ms (prefer 0x57 / post-probe
-  traffic). Does not wait for UI; use full oracle for starfield truth.
+  follow-up card txn starts within ~120ms. Does not wait for UI.
 
 DualShock seat required (bisect settings.toml: p1_device=auto, p1_mode=analog).
 """

@@ -1,9 +1,12 @@
 # Ape Escape (USA) — progressive symbols (discover → label → manipulate).
 # Sync: python3 tools/sync_symbols.py → psx_symbols.h
+#
+# LOAD / libcard labels below are load-bearing for the offline memcard fix
+# (docs/APE_MEMCARD_LOAD.md). Prefer named PSX_FN_* / objects in host hooks.
 
 game = "ApeEscape"
 
-# --- LOAD / libcard (SCUS-944.23) ---
+# --- LOAD / libcard (SCUS-944.23) — IMPORTANT for memcard LOAD GAME ---
 
 [[func]]
 pc = 0x80010000
