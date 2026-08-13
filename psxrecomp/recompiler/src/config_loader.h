@@ -251,18 +251,30 @@ struct RuntimeConfig {
     // beside the executable.
     std::string           overlay_capture_persist_dir;
 
-    // turbo_loads: OPT-IN per game. While the game is loading (CD data
-    // stream active, XA/FMV excluded, post-BIOS-handoff only) the frontend
-    // skips wall-clock pacing so the guest runs at host speed — compressing
-    // load wall-time. Streaming titles (e.g. Crash) must leave this off.
+    // turbo_loads: DEPRECATED AND IGNORED. Load acceleration is owned by the
+    // Mods catalog — psx.enhancement.fast-loading ("Fast Loading (host
+    // pacing)") and psx.enhancement.cd-speed, both `game_id = "*"` so they
+    // ship with every title, both default-off, and both exposing the
+    // multiplier / instant-scheduler detail a single opaque bool never could.
+    // recomp-ui correspondingly draws no generic Turbo loads row.
+    //
+    // The key is still parsed so old configs load without error, but the
+    // runtime NO LONGER honours it: it logs one deprecation line naming the
+    // Fast Loading mod and leaves acceleration off. Retired because leaving
+    // the legacy switch live forced turbo on in any title that had not
+    // explicitly migrated, with no UI to turn it back off (MegaManX6Recomp#14
+    // shipped that way in v1.0.4/v1.0.5). Development toggling still works
+    // through the `turbo_loads` TCP debug command.
     bool                  turbo_loads = false;
+    bool                  has_turbo_loads = false;   // key present in game.toml
 
-    // offer_turbo_loads: expose the generic Turbo loads switch through
-    // recomp-ui Settings. Defaults true for compatibility. A game migrating
-    // load acceleration into its mod catalog sets this false; stale persisted
-    // Settings values are then ignored and a trusted activation plugin owns
-    // the launch policy.
-    bool                  offer_turbo_loads = true;
+    // offer_turbo_loads: DEPRECATED AND IGNORED, now that the generic switch
+    // it gated no longer exists. Defaults false and is never consulted; the
+    // migrated titles that set it false stay correct, and the titles that
+    // never set it are no longer punished for it. Parsed only so old configs
+    // load, and so the runtime can tell a developer the key is now a no-op.
+    bool                  offer_turbo_loads = false;
+    bool                  has_offer_turbo_loads = false;
 
     // turbo_audio_sink: while turbo_loads is actively running unpaced, keep
     // rendering the exact guest-time SPU sample budget (so voice/CD state
@@ -513,11 +525,11 @@ struct RuntimeConfig {
     bool                  has_multitap_port = false;
     int                   multitap_port     = 1;
 
-    // multitap_analog: opt-in DualShock-on-tap hack (default false). When true,
+    // multitap_analog: DualShock-on-tap hack (default true). When true,
     // multitap bulk seats may report 0x73 + stick bytes; when false (faithful),
     // tap seats stay plain digital. Overridable by settings.toml / match_caps.
     bool                  has_multitap_analog = false;
-    bool                  multitap_analog     = false;
+    bool                  multitap_analog     = true;
 
     // legacy_pad_config: per-game pad-protocol compatibility opt-in. false (default)
     // = the modern DualShock config state machine (proper 0x43 enter/exit, config id
@@ -1052,12 +1064,16 @@ struct UserSettings {
     bool has_perspective_texturing = false; bool perspective_texturing = false;
     bool has_screen_kind    = false; int  screen_kind    = 0; // 0..3 (ScreenKind)
     bool has_auto_skip_fmv  = false; bool auto_skip_fmv  = false; // skip FMVs
-    // Turbo through in-game load screens: while the CD data stream is active, run
-    // the guest unpaced (host speed) to compress load wall-time. All guest timing
-    // (VBlanks/callbacks/sectors) is preserved and audio plays through. Default ON
-    // (the per-game game.toml value seeds the launcher toggle; user choice in
-    // settings.toml overrides it).
-    bool has_turbo_loads    = false; bool turbo_loads    = true;
+    // [video] turbo_loads: DEPRECATED AND IGNORED — the legacy home of the
+    // generic Turbo loads switch, back when the launcher drew a row for it.
+    // Load acceleration now lives in the Mods catalog (see
+    // RuntimeConfig::turbo_loads), so this row is neither restored at startup
+    // nor written back out; it survives only to be reported and then dropped
+    // the next time settings.toml is saved. Never re-restore it without also
+    // restoring a UI control — an unreachable persisted value that overrides a
+    // later game.toml change is exactly the write-only latch that shipped
+    // turbo-on to MegaManX6Recomp users who had no way to turn it off.
+    bool has_turbo_loads    = false; bool turbo_loads    = false;
     bool has_fast_boot      = false; bool fast_boot      = false;
     // HLE BIOS tier toggle (see RuntimeConfig::bios_hle). Overrides game.toml.
     bool has_bios_hle       = false; bool bios_hle       = false;
@@ -1087,6 +1103,16 @@ struct UserSettings {
     bool has_aspect_ratio   = false; int  aspect_num     = 4; // display aspect W:H
                                      int  aspect_den     = 3; // (4:3 = native)
     bool has_adaptive_view  = false; bool adaptive_view  = false;
+    // [video] rewind_depth: local rewind snap-ring capacity. UI offers
+    // 50 / 100 / 150 / 200 (default 50). Runtime clamps + snaps to those steps.
+    bool has_rewind_depth   = false; int  rewind_depth   = 50;
+    // [video] rewind_interval: frames between local rewind snaps. UI offers
+    // 1 / 4 / 8 / 12 / 15 (default 15).
+    bool has_rewind_interval = false; int rewind_interval = 15;
+    // [hotkeys] controller-only host shortcuts. Values use recomp-ui's
+    // RECOMP_LAUNCHER_PAD_* encoding (0 = unbound, 1+button, 100+axis).
+    bool has_hotkey_pad_rewind = false; int hotkey_pad_rewind = 1272; /* select+r3 */
+    bool has_hotkey_pad_save_state_menu = false; int hotkey_pad_save_state_menu = 2040; /* select+r1 */
     // [audio]
     bool has_spu_hq         = false; bool spu_hq         = false;
     // [bios] / [disc] / [memcard]
@@ -1129,8 +1155,8 @@ struct UserSettings {
     // seats always arm multitap in the runtime regardless.
     bool has_multitap_enabled = false; bool multitap_enabled = true;
     // DualShock-on-tap hack (settings.toml [controller] multitap_analog).
-    // Default off when unset; game.toml [controller] multitap_analog seeds it.
-    bool has_multitap_analog = false; bool multitap_analog = false;
+    // Default on when unset; game.toml / global prefs may override.
+    bool has_multitap_analog = false; bool multitap_analog = true;
     // Localization: the launcher's chosen language code (feeds RuntimeConfig
     // .language / g_lang). "off"/"jp"/"" = untranslated native game. Persisted to
     // settings.toml [localization].language.

@@ -1,9 +1,10 @@
-/* psx_netplay_sched.h — rollback admission scheduler (policy only).
+/* psx_netplay_sched.h — MotK facade over retcomm-rbengine (rbe_sched_*).
  *
- * Split out of psx_netplay.c (§44) so the pacing/invent/delay policy can be
- * reviewed, tuned and ported independently of the admission mechanics (ring
- * peeks, input-history puts, tip-hold bookkeeping), which stay in
- * psx_netplay.c.
+ * Policy lives in lib/retcomm-rbengine. This header keeps the historical
+ * np_sched_* / PsxNpSchedBridge surface; MotK dig0/FMV/RTT enter through
+ * gates in psx_netplay_sched.c.
+ *
+ * Env knobs: RBE_RB_* (preferred) with MotK PSX_RB_* fallback in rbengine.
  *
  * The scheduler's job (design contract, 2026-08-02):
  *   - keep both peers at the same simulation time (mispredict-driven pacing,
@@ -45,6 +46,12 @@ typedef struct PsxNpSchedBridge {
 } PsxNpSchedBridge;
 
 void np_sched_bind(const PsxNpSchedBridge *bridge);
+
+/* Clear session-scoped pacing/invent state (cushion rebuild, pcap freeze,
+ * timesync debt, tip cadence). Soft-return rematch reuses the process; without
+ * this, a mid-match episode can leave cushion_rebuild/debt armed and freeze
+ * the next session after lockstep armed. Called from np_sched_bind. */
+void np_sched_reset_session(void);
 
 /* sim→wire CONSUMPTION mapping. §44 real delay (default): guest tick T plays
  * the wire row T; the local sample taken at admit(T) is stored at wire T+D

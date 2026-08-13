@@ -1,3 +1,3 @@
-psxrecomp=19cad8a (19cad8a2f3a1e2c1d93c101bb2ff33c2ffb66866)
+psxrecomp=b407b7c (b407b7c1cf9cbf66085570ec277432588d8f7ed5)
 recomp-ui=cf1edba (cf1edba64293293d664837c00ff70ada9f36ae4f)
 recomp-net=f38cd05 (f38cd05b2ed7bb76e36e0ce929e4b2cb78d65ec1)
