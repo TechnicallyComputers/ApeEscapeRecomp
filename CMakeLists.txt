@@ -1,98 +1,31 @@
 cmake_minimum_required(VERSION 3.20)
-project(ApeEscapeRecomp C CXX)
-include(CTest)
+project(ApeEscapeRecomp LANGUAGES C CXX)
 
-set(CMAKE_C_STANDARD 99)
-set(CMAKE_CXX_STANDARD 17)
-
-set(PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/psxrecomp-v4" CACHE PATH
+set(PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/psxrecomp" CACHE PATH
     "Path to psxrecomp")
 
+# --- Opt-in product surfaces (OFF by default in the framework) -------------
+# Scaffold prompts / flags fill these. Without recomp-ui, PSX_RECOMP_UI is OFF.
+# Setup-host CI requires WIZARD_CMAKE_BLOCK / ENABLE_SETUP_WIZARD (FORCE_SETUP_HOST
+# alone does not open first-run / Generate & rebuild).
+# recomp-ui submodule present (PSX_RECOMP_UI defaults ON).
+# Full netplay UI — enable after adding recomp-ui + testing:
+# if(EXISTS "${PSXRECOMP_ROOT}/lib/recomp-net/CMakeLists.txt")
+#     set(PSX_NETPLAY ON CACHE BOOL "…" FORCE)
+# endif()
+set(PSX_SETUP_WIZARD ON CACHE BOOL
+    "Advertise first-run setup wizard + Generate & rebuild in recomp-ui" FORCE)
 include("${PSXRECOMP_ROOT}/runtime/runtime.cmake")
 
-# Current psxrecomp emits the large game translation unit as numbered shards
-# (see psxrecomp-v4/SPLITGEN_MIGRATION.md). Keep the monolithic fallback for
-# older/generated source drops.
-file(GLOB GAME_GENERATED_FULL CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated/SCUS_944.23_full_[0-9][0-9].c")
-list(SORT GAME_GENERATED_FULL)
-if(NOT GAME_GENERATED_FULL)
-    set(GAME_GENERATED_FULL
-        "${CMAKE_CURRENT_SOURCE_DIR}/generated/SCUS_944.23_full.c")
-endif()
-set(GAME_GENERATED_DISPATCH
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated/SCUS_944.23_dispatch.c")
-
-file(GLOB APE_MOD_PLUGIN_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/*.c")
-
-# Optional weak stubs so mid-rollback psxrecomp tips (declare mod APIs in
-# headers but omit definitions) still link against current Ape plugins.
-option(APE_BISECT_WEAK_STUBS
-    "Link weak psx_mod_* stubs for bisecting older psxrecomp tips" OFF)
-if(APE_BISECT_WEAK_STUBS)
-    list(APPEND APE_MOD_PLUGIN_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/ape_bisect_mod_stubs.c")
-endif()
-
-psxrecomp_add_runtime_target(psx-runtime
-    GAME_GENERATED_FULL_C "${GAME_GENERATED_FULL}"
-    GAME_GENERATED_DISPATCH_C "${GAME_GENERATED_DISPATCH}"
-    EXTRAS_SOURCES ${APE_MOD_PLUGIN_SOURCES}
-    DEBUG_PORT 4480
+psxrecomp_add_game_runtime(psx-runtime
+    # ENABLE_NETPLAY_IF_PRESENT
+    # NETPLAY_LOBBY_URL "ws://netplay.retcomm.net:8765"
+    ENABLE_SETUP_WIZARD
     WINDOW_TITLE "ApeEscapeRecomp"
-    # No DEFAULT_BIOS_PATH: an absolute build-machine path must never be baked
-    # into a release exe (runtime.cmake refuses it and warns). Omitting it takes
-    # the framework default "bios/SCPH1001.BIN", which the runtime resolves
-    # relative to the exe — and which now also accepts the region-qualified
-    # "US-PSX-SCPH1001.BIN" spelling (recompiler/include/bios_rom_alias.h).
     DEFAULT_GAME_CONFIG_PATH "game.toml"
-    LAUNCHER_BOXART "${CMAKE_SOURCE_DIR}/recomp/launcher/boxart.tga"
-    # Per-game executable name so each title's process is distinct (killing/
-    # launching one title by name never hits another's running instance).
-    EXE_NAME "ApeEscapeRecomp"
+    MAX_PLAYERS 1
+    LAUNCHER_BOXART "${CMAKE_CURRENT_SOURCE_DIR}/launcher_assets/img/boxart.tga"
+    GEN_MARKER "generated/SCUS_944.23_dispatch.c"
+    GEN_FULL_GLOB "generated/SCUS_944.23_full_*.c"
+    CODEGEN_SETUP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/codegen_setup.c"
 )
-
-# Ship Ape Escape's trusted, game-owned mod catalog beside the executable.
-# Every feature remains disabled until selected on the launcher's Mods page.
-set(APE_PRELOADED_MODS "${CMAKE_CURRENT_SOURCE_DIR}/mods/preloaded")
-if(EXISTS "${APE_PRELOADED_MODS}/packages")
-    add_custom_command(TARGET psx-runtime POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${APE_PRELOADED_MODS}"
-            "$<TARGET_FILE_DIR:psx-runtime>/mods"
-        COMMENT "Preloading the Ape Escape mod catalog")
-endif()
-
-if(BUILD_TESTING)
-    add_executable(ape_stick_response_test
-        tests/test_stick_response.c
-        "${PSXRECOMP_ROOT}/runtime/src/psx_stick.c"
-    )
-    target_include_directories(ape_stick_response_test PRIVATE
-        "${PSXRECOMP_ROOT}/runtime/include"
-    )
-    if(NOT MSVC)
-        target_link_libraries(ape_stick_response_test PRIVATE m)
-    endif()
-    add_test(
-        NAME ape_stick_response_test
-        COMMAND "$<TARGET_FILE:ape_stick_response_test>"
-    )
-
-    add_executable(ape_preloaded_mods_test
-        tests/test_preloaded_mods.cpp
-        "${PSXRECOMP_ROOT}/runtime/src/mod_packages.cpp"
-        "${PSXRECOMP_ROOT}/runtime/src/crc32.c"
-        "${PSXRECOMP_ROOT}/runtime/src/psx_sha256.c"
-    )
-    target_include_directories(ape_preloaded_mods_test PRIVATE
-        "${PSXRECOMP_ROOT}/runtime/include"
-        "${PSXRECOMP_ROOT}/recompiler/lib/toml11"
-    )
-    add_test(
-        NAME ape_preloaded_mods_test
-        COMMAND "$<TARGET_FILE:ape_preloaded_mods_test>"
-                "${APE_PRELOADED_MODS}"
-    )
-endif()

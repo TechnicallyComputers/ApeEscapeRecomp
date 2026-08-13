@@ -1,237 +1,50 @@
+# Autofilled by tools/new_project_layout/probe_disc.py from your legal dump.
+# Review before shipping. Runtime quirks / overlay seeds still need hand work.
+
 [game]
-name = "Ape Escape"
+name = "ApeEscapeRecomp"
 id = "SCUS-94423"
-exe = "apeescape/SCUS_944.23"
-disc = "apeescape/Ape Escape (USA).cue"
+players = 2
+exe = "disc/SCUS_944.23"
+disc = "disc/Ape Escape (USA).cue"
 load_address = "0x80010000"
 entry_pc = "0x800A3660"
 text_size = "0x000A5000"
-stack_base = "0x801FFFF0"
+stack_base = "0x00000000"
+
+# Digests are for data Track 01 (first BINARY FILE / TRACK 01).
+[prepare_disc]
+out_dir = "disc"
+bin_name = "Ape Escape (USA).bin"
+cue_name = "Ape Escape (USA).cue"
+boot_exe = "SCUS_944.23"
+known_sizes = [432238800]
+known_md5 = [
+  "de4e7ab78c08bd03712e83c14d4cf642",
+]
+known_sha1 = [
+  "466cce4bcd6992f57227abd270323bcdad2fb7fc",
+]
 
 [recompiler]
 seeds = "seeds/ghidra_funcs.txt"
-# bios_thunks = "seeds/apeescape_bios_thunks.txt"  # optional; add once BIOS thunks are inventoried
 out_dir = "generated"
 strict = true
 
 [runtime]
-debug_port = 4480
-window_title = "ApeEscapeRecomp"
-controller = "dualshock"
-# Ship the play-free AOT overlay cache beside the executable and keep runtime
-# capture/compilation enabled as a fail-safe for any producer the cache misses.
-overlay_cache = true
+window_title = "ApeEscapeRecomp Recompiled"
 memcard_dir = "saves"
-# HLE kernel-service tier + boot shell-skip (skip the BIOS boot animation and
-# jump straight into the game). LLE stays linked as the fallback/oracle for any
-# service the HLE tier doesn't implement. Env PSX_BIOS_HLE overrides at launch.
-bios_hle = true
 
 [video]
-# Auto-skip FMVs: when a streaming movie (XA audio + MDEC) is detected, run it
-# uncapped and muted so it blows through in a fraction of a second instead of
-# playing in full. Ape has no per-movie frame-total table wired yet, so this
-# fast-forwards the movie rather than truncating it on frame 1; that is the
-# general/universal skip path. The feature is selected from Mods, not Settings.
-auto_skip_fmv = false
-offer_skip_fmv = false
-
-# Ape owns presentation interpolation through its built-in Frame Rate mod.
-# Hide the generic Display controls and ignore stale settings.toml values.
-offer_frame_interpolation = false
-
-# OpenGL renderer by default (validated for Ape: native-wide widescreen + the
-# GL compositor perf fix). The launcher's Renderer setting still offers Software.
 renderer = "opengl"
-
-# Ship 2x SSAA with present antialiasing enabled. Aligned RTX/OpenGL testing
-# found 2x and 4x stayed within the 59.94 Hz budget in the sampled attract
-# scene, but that is not yet a full-playthrough guarantee. 3x/4x SSAA and
-# bilinear texture filtering (which changes the authored PSX texture look)
-# remain opt-in.
-supersampling = 2
-antialiasing = true
-texture_filtering = "nearest"
-
-# Authentic 4:3 is the baseline. Ape Escape's game-specific widescreen modes
-# are selected from the built-in Mods catalog rather than generic Video settings.
 aspect_ratio = "4:3"
 
-[widescreen]
-# This title owns widescreen activation through its mod package. Hide the legacy
-# aspect control and clamp stale settings before the selected mod activates.
-offer = false
-# Offer both 16:9 and 21:9 in the launcher (Ape Escape is full-3D, ultrawide-friendly).
-offer_ultrawide = true
-# Allow the Widescreen mod's Adaptive choice to follow the live window aspect,
-# capped at 21:9.
-adaptive_view = true
-# Ape Escape is fully 3D with no per-prim sprite-tag helper: gameplay frames
-# are detected by GTE activity (RTPS/RTPT projections per frame). Genuine
-# full-2D screens still pillarbox 4:3.
-gte_game_mode = true
-
-# Ape's established widescreen path (GTE projection squash + final stretch)
-# is stable across gameplay and attract demos. The newer native-wide compositor
-# produces severe geometry wedges here, so do not opt Ape into that path.
-native_wide = false
-
-# Pre-scan each current GPU ordering table and proportion-correct eligible
-# textured UI in its highest populated layer before the final wide stretch.
-# Complete glyph/icon runs share one anchor, so centred text and right-corner
-# counters cannot split at thirds boundaries. Depth-sorted world packets,
-# trailing empty OT buckets, and large backdrop planes are excluded.
-auto_ui_squash = true
-
-[widescreen.dome]
-# The title sky is a finite 16x16 curved mesh. This is the exact JAL that
-# projects its grid vertices in the title overlay (return address 0x80136614).
-# Preserve only this producer's authored 4:3 projection before the final wide
-# stretch, without touching Spike or any other attract-demo geometry.
-call_sites = ["0x8013660C"]
-
-[widescreen.cull]
-# Ape's GTE render funnel uses 385x241 extent signatures. Widen only functions
-# containing both the horizontal and vertical signature; isolated compares are
-# left untouched.
-auto_screen_x = true
-screen_w_imms = ["0x181"]
-screen_h_imms = ["0xF1"]
-slti_sites = ["0x8004AB64"]
-
-# Object-level screen bounds used after the shared vertex funnel. These exact
-# guarded pairs were identified in the boot EXE; the hooks are identity at 4:3.
-bias_sites  = ["0x80059d28", "0x800699f4", "0x8006ae04", "0x8006d87c",
-               "0x8006de40", "0x8006f14c", "0x8006f538", "0x80084430"]
-range_sites = ["0x80059d30", "0x800699fc", "0x8006ae0c", "0x8006d884",
-               "0x8006de44", "0x8006f150", "0x8006f540", "0x80084434"]
-
-# The terrain-grid renderer separately rejects whole 0x400-unit cells against
-# its original horizontal cone and absolute-X cap before any terrain polygon
-# reaches the screen-space funnel below. Widescreen should submit every
-# horizontal cell candidate; retain its depth/behind-camera rejection.
-[[widescreen.cull.keep]]
-address = "0x80043D70"
-expected = "0x0062102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80043D94"
-expected = "0x28821001"
-result = 1
-
-# The shared world-model funnel rejects a model when its GTE-transformed
-# origin lies outside the original horizontal frustum (abs(X) > Z / 2).
-# Native-wide projection reveals a larger horizontal frustum, so preserve both
-# horizontal comparisons in each typed model path while 4:3 continues to
-# execute every original result.
-[[widescreen.cull.keep]]
-address = "0x80017228"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017238"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017414"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017424"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017580"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017590"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017798"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x800177A8"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x800179B4"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x800179C4"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017BF0"
-expected = "0x0082102A"
-result = 0
-
-[[widescreen.cull.keep]]
-address = "0x80017C00"
-expected = "0x0082102A"
-result = 0
-
-# Controller defaults. Ape Escape is a dual-analog title — the whole monkey-net /
-# movement scheme is built around the DualShock's two analog sticks, so the game
-# expects an analog-capable pad (id 0x73) to be present. Present a DualShock by
-# default (default_mode = "analog"): the left stick drives movement and the
-# physical D-pad is folded onto the left stick at full deflection, so classic
-# D-pad control still works in analog mode. We do NOT lock the mode — Ape works
-# with both D-pad and analog, so the launcher keeps the full Hybrid | Analog |
-# D-Pad selector available (allow_hybrid stays true); Analog is just the default
-# so both sticks report out of the box. Per-install settings.toml [controller]
-# p1_mode/p2_mode still override.
 [controller]
-# Ape Escape is a dual-analog title (the right stick swings the catch net), so it
-# is hardcoded to Analog. lock_mode hides the launcher's whole pad-mode selector
-# (no Hybrid | Analog | D-Pad) and forces every port to default_mode. Same path
-# Tomba 2 uses to lock digital-only; here it locks analog-only.
-default_mode = "analog"
-lock_mode    = true
-# lock_device stays OFF: the launcher's Player 1/2 cards (device dropdown, keybind
-# access) remain visible. Only the pad-MODE selector (Hybrid | Analog | D-Pad) is
-# removed by lock_mode above — the card just shows the fixed Analog (DualShock)
-# configuration. Any plugged pad (or the keyboard, folded onto the analog stick)
-# drives it; the game always sees a DualShock.
-lock_device  = false
-# Keep a 10% host deadzone for worn-pad drift. Ape Escape applies another radial
-# 21/127 deadzone internally; anti_deadzone begins host output at that threshold
-# and makes the game's resulting speed linear from the edge of the host deadzone
-# to full travel. X/Y remain one radial vector, so cardinals and diagonals have
-# equal speed and the right-stick gadget direction does not notch.
-deadzone      = 3277
-anti_deadzone = 5376
+default_mode = "digital"
 
-# ── Audit-specific config (consumed by psxrecomp-v4/tools/*.py and tests) ──
-# Schema mirrors psxrecomp-v4/bios/SCPH1001.toml. Paths are relative to the
-# project root.
-multitap_analog = false
-
-[audit]
-# Dynamic discovery — functions are found by walking control flow from
-# entry_pc. No Ghidra function-starts file is required to bootstrap.
-
-# Code region: text segment is contiguous from load_address for text_size bytes.
-[[audit.regions]]
-name        = "Text"
-rom_start   = "0x800"          # offset within the PS-X EXE file (skip header)
-rom_end     = "0xA5800"        # rom_start + text_size
-vaddr_base  = "0x80010000"
-
-# Address normalization: KSEG masking only (game loads contiguously, no remaps).
-[audit.normalize]
-kseg_mask = "0x1FFFFFFF"
+# Online mount gate: digests + track count + optional TOC fingerprint
+# (see docs/NETPLAY.md).
+[netplay]
+require_cue = true
+required_tracks = 1
+required_disc_fp = "335c08ad6c150e63319cb0796ffa7d49a227772d6f8932acddad1adeb3a18e37"

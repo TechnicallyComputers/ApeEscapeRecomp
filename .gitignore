@@ -59,3 +59,11 @@ starvation_dump.jsonl
 
 # Python caches
 __pycache__/
+
+# --- PSXRecomp setup-host (project studio) ---
+/disc/
+/bios/
+/dist/
+/psxrecomp.stub.bak
+/psxrecomp/generated
+/psxrecomp/generated
