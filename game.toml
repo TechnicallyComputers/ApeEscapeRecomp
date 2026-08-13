@@ -4,7 +4,7 @@
 [game]
 name = "ApeEscapeRecomp"
 id = "SCUS-94423"
-players = 2
+players = 1
 exe = "disc/SCUS_944.23"
 disc = "disc/Ape Escape (USA).cue"
 load_address = "0x80010000"
@@ -24,6 +24,9 @@ known_md5 = [
 ]
 known_sha1 = [
   "466cce4bcd6992f57227abd270323bcdad2fb7fc",
+]
+known_crc32 = [
+  "c6f455bc",
 ]
 
 [recompiler]

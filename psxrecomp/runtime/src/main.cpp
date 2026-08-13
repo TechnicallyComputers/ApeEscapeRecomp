@@ -15,6 +15,7 @@
 #include "text_xlate.h"
 #include "boot_state.h"
 #include "bios_hle.h"
+#include "bios_hle_plan.h"
 #include "psx_bios_backend.h"
 #include "psx_cycles.h"
 #include "starvation_ring.h"
@@ -63,11 +64,14 @@ extern "C" void psx_event_step_conservative_env_init(void);
 #include "crash_trace.h"
 #include "freeze_heartbeat.h"
 #include "config_loader.h"
+#include "bios_rom_alias.h"
+#include "launcher_device.h"
 #include "game_options.h"
 #include "mod_plugins.h"
 #include "mod_runtime.h"
 #include "crc32.h"
 #include "disc_identity.h"
+#include "disc_path.h"
 #include "iso_reader.h"      /* text-image guard: extract the boot EXE from the disc */
 #include "psx_keybinds.h"    /* configurable keyboard->DualShock keybinds (keybinds.ini) */
 
@@ -318,11 +322,12 @@ static SDL_Texture*  sdl_texture;
 struct PlayerInput {
     int   kind = 0;            /* 0=none, 1=keyboard, 2=controller */
     char  guid[40] = {0};      /* SDL joystick GUID string when kind==controller */
-    /* Pad input mode (PSXRecompV4::PadMode): 0=hybrid (default), 1=analog,
+    /* Pad input mode (PSXRecompV4::PadMode): 1=analog (default), 0=hybrid
+     * (MOD-ONLY, requested via psx_mod_set_controller_mode_override),
      * 2=digital. hybrid_analog is the per-frame auto-switch latch used only in
      * hybrid mode: true => currently presenting DualShock (stick was the last
      * input), false => currently presenting a digital pad (D-pad was last). */
-    int   mode = PSXRecompV4::PAD_MODE_HYBRID;
+    int   mode = PSXRecompV4::PAD_MODE_ANALOG;
     bool  hybrid_analog = false;
     int   deadzone = 3277;  /* raw SDL axis units, ~10% default */
     SDL_GameController* handle = nullptr;
@@ -2041,14 +2046,23 @@ static std::filesystem::path resolve_bios_for_runtime(const char* requested,
                                                       bool requested_is_explicit) {
     const bool openbios_allowed = s_openbios_allowed;
     const PsxBiosBackend* bundled = psx_bios_bundled();
+    const bool player_bios_selectable = psx_bios_has_selectable() != 0;
+    const bool bundled_only =
+        openbios_allowed && bundled && !player_bios_selectable;
 
-    /* 1. An explicit choice: --bios, else a remembered pick. */
+    /* 1. An explicit choice: --bios, else a remembered pick. A product build
+     * with only its bundled backend has no meaningful player choice: ignore
+     * stale settings/bios.cfg paths instead of validating an image the hidden
+     * launcher row cannot clear. Setup hosts (registry_count == 0) retain their
+     * picker/generation flow. */
     std::filesystem::path chosen;
-    if (requested_is_explicit && requested && requested[0]) {
-        chosen = resolve_bios_path(requested, argv0);
-    } else {
-        std::filesystem::path cached = read_cached_path(argv0, "bios.cfg");
-        if (!cached.empty() && std::filesystem::exists(cached)) chosen = cached;
+    if (!bundled_only) {
+        if (requested_is_explicit && requested && requested[0]) {
+            chosen = resolve_bios_path(requested, argv0);
+        } else {
+            std::filesystem::path cached = read_cached_path(argv0, "bios.cfg");
+            if (!cached.empty() && std::filesystem::exists(cached)) chosen = cached;
+        }
     }
     if (!chosen.empty() && std::filesystem::exists(chosen)) {
         if (validate_bios_for_launch(chosen)) return chosen;   /* activates it */
@@ -2183,11 +2197,26 @@ static std::filesystem::path resolve_bios_path(const char* requested, const char
         fs::path abs = fs::absolute(p, ec);
         return ec ? p : abs;
     }
+    // Either BIOS filename convention is acceptable: a dump folder holding
+    // "US-PSX-SCPH1001.BIN" satisfies a request for "SCPH1001.BIN" and vice
+    // versa (see recompiler/include/bios_rom_alias.h).
+    if (fs::path aliased = PSXRecompV4::resolve_bios_rom(p); aliased != p) {
+        fs::path abs = fs::absolute(aliased, ec);
+        return ec ? aliased : abs;
+    }
     if (p.is_absolute()) return p;
 
     // Anchor on the exe directory — never cwd (see exe_dir_from_argv).
     fs::path found = find_upward(exe_dir_from_argv(argv0), p);
     if (!found.empty()) return found / p;
+    // Same walk, accepting the other naming convention at each rung: the
+    // literal name is absent but a region-qualified sibling may be present.
+    for (fs::path dir = fs::absolute(exe_dir_from_argv(argv0), ec);
+         !dir.empty(); dir = dir.parent_path()) {
+        const fs::path aliased = PSXRecompV4::resolve_bios_rom(dir / p);
+        if (aliased != dir / p && fs::exists(aliased, ec)) return aliased;
+        if (!dir.has_parent_path() || dir.parent_path() == dir) break;
+    }
 
     // Dev-checkout rung: game projects keep the framework at
     // <game root>/psxrecomp-v4 (junction/worktree), so a relative default like
@@ -2307,6 +2336,11 @@ static void shutdown_runtime(void) {
      * off-thread JIT worker here; the worker no longer exists.) */
     psx_netplay_shutdown();
     memcard_flush_all();
+    /* Stop and join the active external compiler before capture/debug teardown.
+     * Otherwise closing the window can leave cmd/python/gcc running against
+     * cache and capture files while the main thread performs synchronous
+     * shutdown work, making the window appear frozen until that tree exits. */
+    autocompile_shutdown();
     overlay_autocapture_shutdown();
     overlay_capture_wait_pending();
     overlay_capture_write_json();
@@ -3034,6 +3068,8 @@ struct PsxButtonMap {
 static int controller_device_index = 0;
 /* Default ~10% of SDL axis range (32767). Overridden per-player via settings. */
 static int controller_deadzone = 3277;
+/* [controller] anti_deadzone (game.toml). 0 = off, the historical behaviour. */
+static int controller_anti_deadzone = 0;
 static constexpr int kDefaultDeadzoneRaw = 3277;
 static constexpr int kControllerMapN = 24;
 using ControllerMap = std::array<PsxButtonMap, kControllerMapN>;
@@ -3741,25 +3777,15 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
  * capped at 32767 before rescale so a full-diagonal push (raw mag ~46341) maps
  * to ~0x9E/0x9E per axis — the circular gate a real DualShock stick reports,
  * not 0xFF/0xFF. At dz==0 it reduces to a plain magnitude-preserving map. */
+/* Radial deadzone + anti-deadzone in ONE place: psx_stick_to_dualshock
+ * (runtime/src/psx_stick.c), the shared implementation master calls. The
+ * per-player deadzone is PR #110's; anti_deadzone is master's [controller]
+ * setting, which an inlined copy of the maths here silently dropped. */
 static void axes_to_pad_pair(int16_t vx, int16_t vy, uint8_t* obx, uint8_t* oby,
                              int deadzone_raw) {
-    const double dz = (double)(deadzone_raw > 0 ? deadzone_raw : controller_deadzone);
-    double x = vx, y = vy;
-    double mag = std::sqrt(x * x + y * y);            /* 0 .. ~46341 */
-    if (mag <= dz || mag <= 0.0) { *obx = 0x80; *oby = 0x80; return; }
-    double capped = mag > 32767.0 ? 32767.0 : mag;
-    double range = 32767.0 - dz;
-    if (range < 1.0) range = 1.0;
-    double newmag = (capped - dz) * 32767.0 / range;  /* 0 .. 32767 */
-    double scale = newmag / mag;                       /* along true direction */
-    int sx = (int)std::lround(x * scale);
-    int sy = (int)std::lround(y * scale);
-    if (sx > 32767) sx = 32767; else if (sx < -32768) sx = -32768;
-    if (sy > 32767) sy = 32767; else if (sy < -32768) sy = -32768;
-    int bx = (sx + 32768) >> 8;
-    int by = (sy + 32768) >> 8;
-    *obx = (uint8_t)(bx < 0 ? 0 : (bx > 255 ? 255 : bx));
-    *oby = (uint8_t)(by < 0 ? 0 : (by > 255 ? 255 : by));
+    psx_stick_to_dualshock(vx, vy,
+                           deadzone_raw > 0 ? deadzone_raw : controller_deadzone,
+                           controller_anti_deadzone, obx, oby);
 }
 
 /* Buttons for a player's selected device (0xFFFF = none pressed). `player` is
@@ -3882,22 +3908,99 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4], boo
  * player has reached for analog. hybrid_dpad_active: any D-pad direction (or,
  * for the keyboard, an arrow key) is held — the player wants classic digital.
  * The keyboard has no analog stick, so a keyboard player stays digital. */
-static bool hybrid_stick_active(const PlayerInput& p) {
-    if (p.kind != 2 || !p.handle) return false;
-    const double lx = SDL_GameControllerGetAxis(p.handle, SDL_CONTROLLER_AXIS_LEFTX);
-    const double ly = SDL_GameControllerGetAxis(p.handle, SDL_CONTROLLER_AXIS_LEFTY);
-    const double dz = (double)(p.deadzone > 0 ? p.deadzone : controller_deadzone);
+static bool controller_stick_active(SDL_GameController* handle, int deadzone) {
+    if (!handle) return false;
+    const double lx =
+        SDL_GameControllerGetAxis(handle, SDL_CONTROLLER_AXIS_LEFTX);
+    const double ly =
+        SDL_GameControllerGetAxis(handle, SDL_CONTROLLER_AXIS_LEFTY);
+    const double dz = (double)(deadzone > 0 ? deadzone : controller_deadzone);
     return std::sqrt(lx * lx + ly * ly) > dz;
 }
-static bool hybrid_dpad_active(const PlayerInput& p, int player, bool kb_always) {
-    if (p.kind == 2 && p.handle) {
-        if (SDL_GameControllerGetButton(p.handle, SDL_CONTROLLER_BUTTON_DPAD_LEFT)  ||
-            SDL_GameControllerGetButton(p.handle, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) ||
-            SDL_GameControllerGetButton(p.handle, SDL_CONTROLLER_BUTTON_DPAD_UP)    ||
-            SDL_GameControllerGetButton(p.handle, SDL_CONTROLLER_BUTTON_DPAD_DOWN))
-            return true;
+static bool controller_dpad_active(SDL_GameController* handle) {
+    return handle &&
+        (SDL_GameControllerGetButton(handle, SDL_CONTROLLER_BUTTON_DPAD_LEFT) ||
+         SDL_GameControllerGetButton(handle, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) ||
+         SDL_GameControllerGetButton(handle, SDL_CONTROLLER_BUTTON_DPAD_UP) ||
+         SDL_GameControllerGetButton(handle, SDL_CONTROLLER_BUTTON_DPAD_DOWN));
+}
+/* Which input sources may drive ONE pad slot this frame.
+ *
+ * This exists because the answer is consumed in three places — the button
+ * merge, the HYBRID analog/digital auto-switch, and the analog stick fold —
+ * and those three used to compute it independently. Whenever they disagreed,
+ * a source could assert a button without the hybrid state machine seeing it,
+ * leaving the pad reporting D-pad presses while still presenting ANALOG: the
+ * exact failure the hybrid logic exists to prevent, and silent when it
+ * happens. Deriving all three from one predicate makes that desync
+ * structurally impossible rather than merely fixed once.
+ *
+ * Changing input-routing POLICY is therefore a change to this function alone
+ * (e.g. whether keybinds stay live alongside a routed gamepad), not a change
+ * to three separate conditions that must be kept in step by hand. */
+struct PadSources {
+    bool device;    /* the slot's own assigned device (keyboard or controller) */
+    bool keybinds;  /* keybinds.ini keyboard/mouse binds for this player       */
+    bool all_pads;  /* every connected controller (dev-any-input)              */
+};
+
+static PadSources pad_sources_for(const PlayerInput& p, bool dev_here) {
+    PadSources s;
+    s.device   = (p.kind != 0);
+    /* Keybinds are ALWAYS live, including alongside a routed gamepad: that is
+     * the whole point of binding a mouse button for aiming while holding a
+     * pad. Routing a player to a controller used to discard every
+     * keybinds.ini/mouse bind silently.
+     *
+     * Widening this ONE line is safe precisely because every consumer reads
+     * it — the button merge, the HYBRID auto-switch detectors and the stick
+     * fold all learn about the keyboard in the same instant. Widening the
+     * button merge alone (the original shape of this change) let a keyboard
+     * D-pad press assert the D-pad bits while hybrid_dpad_active never saw
+     * them, leaving a mod-driven hybrid pad reporting D-pad input while still
+     * presenting ANALOG.
+     *
+     * The PSX pad word is active-low and the merge is an AND, so an unpressed
+     * source is a no-op: a pad-only player is unaffected. kind==1 already
+     * consumes the binds through pad_buttons_for/pad_sticks_for, and applying
+     * them twice is idempotent. */
+    (void)dev_here;
+    s.keybinds = true;
+    s.all_pads = dev_here;
+    return s;
+}
+
+static bool hybrid_stick_active(const PlayerInput& p, const PadSources& src) {
+    if (src.device && p.kind == 2 &&
+        controller_stick_active(p.handle, p.deadzone)) return true;
+    if (src.all_pads) {
+        const int n = SDL_NumJoysticks();
+        for (int i = 0; i < n; i++) {
+            if (!SDL_IsGameController(i)) continue;
+            const SDL_JoystickID inst = SDL_JoystickGetDeviceInstanceID(i);
+            SDL_GameController* handle =
+                SDL_GameControllerFromInstanceID(inst);
+            if (!handle) handle = SDL_GameControllerOpen(i);
+            if (controller_stick_active(handle, controller_deadzone)) return true;
+        }
     }
-    if (p.kind == 1 || kb_always) {
+    return false;
+}
+static bool hybrid_dpad_active(const PlayerInput& p, int player,
+                               const PadSources& src) {
+    if (src.device && p.kind == 2 && controller_dpad_active(p.handle)) return true;
+    if (src.all_pads) {
+        const int n = SDL_NumJoysticks();
+        for (int i = 0; i < n; i++) {
+            if (!SDL_IsGameController(i)) continue;
+            const SDL_JoystickID inst = SDL_JoystickGetDeviceInstanceID(i);
+            SDL_GameController* handle =
+                SDL_GameControllerFromInstanceID(inst);
+            if (!handle) handle = SDL_GameControllerOpen(i);
+            if (controller_dpad_active(handle)) return true;
+        }
+    }
+    if (src.keybinds) {
         const Uint8* keys = SDL_GetKeyboardState(NULL);
         if (psx_keybinds_dpad_active(keys, player)) return true;
     }
@@ -4014,7 +4117,7 @@ static void apply_input_override_to_sio(int override_word) {
      * titles (Ape Escape) ignore debug-server injection in headless runs. */
     int mode;
     if (p.kind != 0)                  mode = effective_player_mode(p);
-    else if (dev_any_input_enabled()) mode = (int)PSXRecompV4::PAD_MODE_HYBRID;
+    else if (dev_any_input_enabled()) mode = (int)PSXRecompV4::PAD_MODE_ANALOG;
     else                              mode = p.mode;
 
     int eff_analog;
@@ -4063,23 +4166,22 @@ static int capture_pad_slot(int s, PsxNetPad* out) {
      * state gates how the left stick is read for BOTH the button word and the
      * analog axes below. An assigned device keeps its configured mode (a
      * launcher-selected analog DualShock stays analog, so its input path / SIO
-     * handshake cadence is preserved exactly). Keyboard is always digital.
-     * Multitap taps are forced digital unless multitap_analog hack is on.
-     * A P1 with no assigned device but dev-any-input on presents as HYBRID. */
-    int mode;
-    if (sio_pad_on_multitap(s) && !sio_get_multitap_analog())
-        mode = (int)PSXRecompV4::PAD_MODE_DIGITAL;
-    else if (p.kind != 0) mode = effective_player_mode(p);
-    else if (dev_here)    mode = (int)PSXRecompV4::PAD_MODE_HYBRID;
-    else                  mode = (int)PSXRecompV4::PAD_MODE_DIGITAL;
+     * handshake cadence is preserved exactly). A P1 with no assigned device
+     * keeps the game's resolved mode while dev-any-input merges the keyboard and
+     * all connected controllers. */
+    /* One source set, consumed by the hybrid switch, the button merge and the
+     * stick fold below — see pad_sources_for(). */
+    const PadSources src = pad_sources_for(p, dev_here);
+
+    const int mode = effective_player_mode_for_sio(p, s);
     int eff_analog;
     if (mode == PSXRecompV4::PAD_MODE_DIGITAL) {
         eff_analog = 0;
     } else if (mode == PSXRecompV4::PAD_MODE_ANALOG) {
         eff_analog = 1;
     } else { /* HYBRID */
-        if (hybrid_stick_active(p))                       p.hybrid_analog = true;
-        else if (hybrid_dpad_active(p, player, dev_here)) p.hybrid_analog = false;
+        if (hybrid_stick_active(p, src))             p.hybrid_analog = true;
+        else if (hybrid_dpad_active(p, player, src)) p.hybrid_analog = false;
         eff_analog = p.hybrid_analog ? 1 : 0;
     }
 
@@ -4093,12 +4195,14 @@ static int capture_pad_slot(int s, PsxNetPad* out) {
      * D-pad control (Ape Escape's camera rotate) from being spun by stick
      * movement or centre drift. Digital mode keeps the stick->D-pad fold. */
     const bool suppress_stick = (eff_analog != 0);
-    uint16_t btn = (p.kind != 0) ? pad_buttons_for(p, player, suppress_stick)
-                                 : (uint16_t)0xFFFF;
-    if (dev_here) {
-        btn &= pad_from_keyboard(1);                        /* keyboard P1 binds  */
-        btn &= dev_all_controllers_buttons(suppress_stick); /* any plugged-in pad */
-    }
+    uint16_t btn = src.device ? pad_buttons_for(p, player, suppress_stick)
+                              : (uint16_t)0xFFFF;
+    /* kind==1 already consumed the binds inside pad_buttons_for — ANDing the
+     * same word twice is idempotent, so this stays a plain source check. */
+    if (src.keybinds)
+        btn &= pad_from_keyboard(player);
+    if (src.all_pads)
+        btn &= dev_all_controllers_buttons(suppress_stick);
 
     /* Analog axes. Pinned-ANALOG folds the physical D-pad onto the left axes
      * (fold_dpad) so the D-pad still moves stick-only games; HYBRID feeds the
@@ -4110,13 +4214,17 @@ static int capture_pad_slot(int s, PsxNetPad* out) {
     } else if (eff_analog) {  /* HYBRID, currently presenting analog */
         pad_sticks_for(p, player, st, /*fold_dpad=*/false);
     }
-    /* Dev mode: fold the keyboard's stick binds AND any connected controller's
-     * sticks onto the analog stick, so an analog-mode P1 steers from whatever
-     * is plugged in (P1 binds). */
-    if (dev_here && eff_analog) {
-        const Uint8* keys = SDL_GetKeyboardState(NULL);
-        psx_keybinds_sticks(keys, 1, st);
-        dev_any_controller_sticks(st);
+    /* Stick fold, driven by the SAME source set as the buttons above: whatever
+     * may press a button may also steer. kind==1 already folded its binds
+     * inside pad_sticks_for; psx_keybinds_sticks only widens a deflection, so
+     * applying it twice is idempotent. */
+    if (eff_analog) {
+        if (src.keybinds) {
+            const Uint8* keys = SDL_GetKeyboardState(NULL);
+            psx_keybinds_sticks(keys, player, st);
+        }
+        if (src.all_pads)
+            dev_any_controller_sticks(st);
     }
 
     out->buttons = btn;
@@ -4142,6 +4250,9 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
     const bool dev_here = false;
     if (p.kind == 0) return 0;  /* no device in this port */
 
+    /* Same predicate as capture_pad_slot, with dev-any-input disabled:
+     * netplay must stay exclusive so peers hash-agree. */
+    const PadSources src = pad_sources_for(p, dev_here);
     const int sio_slot = (present_sio_slot >= 0) ? present_sio_slot : s;
     int mode = effective_player_mode_for_sio(p, sio_slot);
     int eff_analog;
@@ -4150,8 +4261,8 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
     } else if (mode == PSXRecompV4::PAD_MODE_ANALOG) {
         eff_analog = 1;
     } else { /* HYBRID */
-        if (hybrid_stick_active(p))                       p.hybrid_analog = true;
-        else if (hybrid_dpad_active(p, player, dev_here)) p.hybrid_analog = false;
+        if (hybrid_stick_active(p, src))             p.hybrid_analog = true;
+        else if (hybrid_dpad_active(p, player, src)) p.hybrid_analog = false;
         eff_analog = p.hybrid_analog ? 1 : 0;
     }
 
@@ -4284,7 +4395,7 @@ static void capture_override_pad(int override_word, PsxNetPad* out) {
 
     int mode;
     if (p.kind != 0)                  mode = effective_player_mode(p);
-    else if (dev_any_input_enabled()) mode = (int)PSXRecompV4::PAD_MODE_HYBRID;
+    else if (dev_any_input_enabled()) mode = (int)PSXRecompV4::PAD_MODE_ANALOG;
     else                              mode = p.mode;
 
     int eff_analog;
@@ -5943,6 +6054,7 @@ namespace {
     uint32_t    g_lnch_expected_crc  = 0;
     bool        g_lnch_has_crc       = false;
     const char* g_lnch_argv0         = nullptr;
+    bool        g_lnch_netplay_available = false;
 
     int ae_bios_verify(const char* bios_path, RecompLauncherCBiosVerify* out) {
         if (!out) return 0;
@@ -6116,26 +6228,33 @@ namespace {
         PSXRecompV4::DiscIdentity id = PSXRecompV4::identify_disc(
             disc_path, g_lnch_expected_serial, g_lnch_expected_crc,
             g_lnch_has_crc, /*compute_crc*/ g_lnch_has_crc,
-            &g_netplay_disc_expect);
+            g_lnch_netplay_available ? &g_netplay_disc_expect : nullptr);
         const std::string& serial = !id.detected_serial.empty()
             ? id.detected_serial : g_lnch_expected_serial;
         std::snprintf(out->serial, sizeof(out->serial), "%s", serial.c_str());
         std::snprintf(out->region, sizeof(out->region), "%s", id.region.c_str());
         out->iso_ok = id.has_header ? 1 : 0;
-        out->track_count = id.track_count;
-        out->netplay_ok = id.netplay_ok ? 1 : 0;
-        std::snprintf(out->disc_fp, sizeof(out->disc_fp), "%s", id.disc_fp.c_str());
-        std::snprintf(out->netplay_detail, sizeof(out->netplay_detail), "%s",
-                      id.netplay_detail.c_str());
-        g_session_disc_fp = id.disc_fp;
-        g_session_netplay_disc_ok = id.netplay_ok && !id.disc_fp.empty();
-        psx_lobby_set_disc_fp(id.disc_fp.c_str());
-        // Verdict shown by the launcher. TOC / [netplay] failures are warn so
-        // offline Play still works; online is gated by netplay_ok + disc_fp.
+        if (g_lnch_netplay_available) {
+            out->track_count = id.track_count;
+            out->netplay_ok = id.netplay_ok ? 1 : 0;
+            std::snprintf(out->disc_fp, sizeof(out->disc_fp), "%s",
+                          id.disc_fp.c_str());
+            std::snprintf(out->netplay_detail, sizeof(out->netplay_detail), "%s",
+                          id.netplay_detail.c_str());
+            g_session_disc_fp = id.disc_fp;
+            g_session_netplay_disc_ok = id.netplay_ok && !id.disc_fp.empty();
+            psx_lobby_set_disc_fp(id.disc_fp.c_str());
+        } else {
+            g_session_disc_fp.clear();
+            g_session_netplay_disc_ok = false;
+        }
+        // Verdict shown by the launcher. TOC / [netplay] failures only affect
+        // netplay-capable titles; ordinary offline disc verification is
+        // strictly serial/header/optional-CRC based.
         if (!id.opened || !id.has_header)                            out->verdict = 3; // bad
         else if (id.expected_serial_given && !id.serial_matches)     out->verdict = 3; // wrong disc
         else if (id.expected_crc_given && id.crc_computed && !id.crc_matches) out->verdict = 2; // warn
-        else if (!id.netplay_ok)                                     out->verdict = 2; // TOC/cue
+        else if (g_lnch_netplay_available && !id.netplay_ok)         out->verdict = 2; // TOC/cue
         else                                                          out->verdict = 1; // ok
         return 1;
     }
@@ -8890,18 +9009,20 @@ int main(int argc, char** argv) {
 #else
         player_device[i] = (i == 0) ? "keyboard" : "none";
 #endif
-        player_mode[i] = PSXRecompV4::PAD_MODE_HYBRID;
+        player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
         player_deadzone[i] = kDefaultDeadzoneRaw;
-        ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_HYBRID;
+        ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
     }
-    bool ctrl_allow_hybrid = true;  /* game.toml [controller] allow_hybrid; false hides Hybrid in the launcher */
     bool ctrl_lock_mode    = false; /* game.toml [controller] lock_mode; true hides the whole pad-mode selector */
     bool ctrl_lock_device  = false; /* game.toml [controller] lock_device; true hides the Player controller cards entirely */
-    bool ws_offered = true; /* game.toml [widescreen] offer; false hides the launcher toggle + clamps 4:3 */
-    bool ws_ultrawide_offered = false;
-    bool ws_adaptive_view_supported = false;
-    bool frame_interpolation_offered = true;
-    bool skip_fmv_offered = true;
+    /* Widescreen/View mode and Skip FMVs are mod-owned on PSX. Their legacy
+     * game.toml offer flags remain parseable for old projects but deliberately
+     * cannot expose generic launcher controls or activate the features. Trusted
+     * activation plugins apply them after launcher/settings resolution. */
+    constexpr bool ws_offered = false;
+    constexpr bool ws_ultrawide_offered = false;
+    constexpr bool frame_interpolation_offered = false;
+    constexpr bool skip_fmv_offered = false;
     bool turbo_loads_offered = true;
     bool vulkan_offered = false; /* game.toml [video] offer_vulkan; developer opt-in for launcher visibility */
     /* Legacy single deadzone (<0 => keep per-slot / input.ini defaults). */
@@ -9033,6 +9154,7 @@ int main(int argc, char** argv) {
             g_fmv_skip_no_xa_hold  = gc.runtime.video_fmv_skip_no_xa_hold;
             g_ws_anchor_addr   = gc.ws_sprite_anchor_addr;
             g_ws_hud_sprt      = gc.ws_hud_sprt_squash;
+            gpu_ws_set_auto_ui_squash(gc.ws_auto_ui_squash ? 1 : 0);
             /* [widescreen] full_2d — opt a pure-2D sprite game (MMX6) into the
              * widescreen present path. Applied to the GPU layer up front so the
              * ws engage at game entry classifies every frame as gameplay. */
@@ -9087,6 +9209,8 @@ int main(int argc, char** argv) {
              * cleanup of synthetic native-wide margins. */
             gpu_ws_set_clear_reveal(gc.ws_clear_reveal ? 1 : 0);
             gpu_ws_set_cull_guard_pixels(gc.ws_cull_guard_pixels);
+            gpu_ws_set_activation_guard_pixels(
+                gc.ws_cull_activation_guard_pixels);
             gpu_ws_set_explicit_cull_sites(
                 gc.ws_cull_bias_sites.data(), (int)gc.ws_cull_bias_sites.size(),
                 gc.ws_cull_slti_sites.data(), (int)gc.ws_cull_slti_sites.size(),
@@ -9104,6 +9228,74 @@ int main(int argc, char** argv) {
                 gc.ws_cull_plane_nx_sites.data(), (int)gc.ws_cull_plane_nx_sites.size());
             gpu_ws_set_xclip_load_sites(
                 gc.ws_cull_xclip_load_sites.data(), (int)gc.ws_cull_xclip_load_sites.size());
+            {
+                std::vector<uint32_t> addresses, expected, results;
+                addresses.reserve(gc.ws_cull_keep_sites.size());
+                expected.reserve(gc.ws_cull_keep_sites.size());
+                results.reserve(gc.ws_cull_keep_sites.size());
+                for (const auto& site : gc.ws_cull_keep_sites) {
+                    addresses.push_back(site.address);
+                    expected.push_back(site.expected);
+                    results.push_back(site.result);
+                }
+                gpu_ws_set_cull_keep_sites(
+                    addresses.data(), expected.data(), results.data(),
+                    (int)addresses.size());
+            }
+            {
+                std::vector<uint32_t> addresses, expected;
+                addresses.reserve(gc.ws_cull_angle_sites.size());
+                expected.reserve(gc.ws_cull_angle_sites.size());
+                for (const auto& site : gc.ws_cull_angle_sites) {
+                    addresses.push_back(site.address);
+                    expected.push_back(site.expected);
+                }
+                gpu_ws_set_angle_sites(
+                    addresses.data(), expected.data(), (int)addresses.size());
+            }
+            {
+                std::vector<uint32_t> addresses, expected, thresholds;
+                std::vector<uint32_t> object_regs, x_regs, z_regs, y_regs;
+                std::vector<uint32_t> queue_guards;
+                addresses.reserve(gc.ws_aspect_cone.sites.size());
+                expected.reserve(gc.ws_aspect_cone.sites.size());
+                thresholds.reserve(gc.ws_aspect_cone.sites.size());
+                object_regs.reserve(gc.ws_aspect_cone.sites.size());
+                x_regs.reserve(gc.ws_aspect_cone.sites.size());
+                z_regs.reserve(gc.ws_aspect_cone.sites.size());
+                y_regs.reserve(gc.ws_aspect_cone.sites.size());
+                queue_guards.reserve(gc.ws_aspect_cone.sites.size());
+                const auto effective_reg = [](uint32_t site_reg,
+                                              uint32_t default_reg) {
+                    return site_reg == 0xFFFFFFFFu
+                        ? default_reg : site_reg;
+                };
+                for (const auto& site : gc.ws_aspect_cone.sites) {
+                    addresses.push_back(site.address);
+                    expected.push_back(site.expected);
+                    thresholds.push_back(site.cosine_threshold);
+                    object_regs.push_back(effective_reg(
+                        site.object_reg, gc.ws_aspect_cone.object_reg));
+                    x_regs.push_back(effective_reg(
+                        site.x_reg, gc.ws_aspect_cone.x_reg));
+                    z_regs.push_back(effective_reg(
+                        site.z_reg, gc.ws_aspect_cone.z_reg));
+                    y_regs.push_back(effective_reg(
+                        site.y_reg, gc.ws_aspect_cone.y_reg));
+                    queue_guards.push_back(site.queue_guard ? 1u : 0u);
+                }
+                gpu_ws_set_aspect_cone(
+                    addresses.data(), expected.data(), thresholds.data(),
+                    object_regs.data(), x_regs.data(), z_regs.data(),
+                    y_regs.data(), queue_guards.data(), (int)addresses.size(),
+                    gc.ws_aspect_cone.forward_addr,
+                    gc.ws_aspect_cone.object_type_offset,
+                    gc.ws_aspect_cone.hysteresis_pixels,
+                    gc.ws_aspect_cone.queue_reserve,
+                    gc.ws_aspect_cone.queue_count_addrs.data(),
+                    gc.ws_aspect_cone.queue_capacities.data(),
+                    gc.ws_aspect_cone.queue_type_masks.data());
+            }
             gte_ws_configure_dome_sites(
                 gc.ws_dome_call_sites.data(), (int)gc.ws_dome_call_sites.size());
             /* [widescreen.cull] per-game gates + signature immediates for the
@@ -9114,12 +9306,6 @@ int main(int argc, char** argv) {
             if (!gc.ws_cull_w_imms.empty() || !gc.ws_cull_h_imms.empty())
                 gpu_ws_set_cull_imms(gc.ws_cull_w_imms.data(), (int)gc.ws_cull_w_imms.size(),
                                      gc.ws_cull_h_imms.data(), (int)gc.ws_cull_h_imms.size());
-            ws_offered = gc.ws_offered;
-            ws_ultrawide_offered = gc.ws_ultrawide_offered;
-            ws_adaptive_view_supported = gc.ws_adaptive_view;
-            frame_interpolation_offered =
-                gc.runtime.video_offer_frame_interpolation;
-            skip_fmv_offered = gc.runtime.video_offer_skip_fmv;
             turbo_loads_offered = gc.runtime.offer_turbo_loads;
             vulkan_offered = gc.vulkan_offered;
             /* Register the [widescreen.backdrop] store PCs so the dirty-RAM
@@ -9143,7 +9329,6 @@ int main(int argc, char** argv) {
             }
             for (int i = 0; i < PSX_MAX_PLAYERS; ++i)
                 ctrl_locked_mode[i] = player_mode[i];
-            ctrl_allow_hybrid = gc.runtime.controller_allow_hybrid;
             ctrl_lock_mode    = gc.runtime.controller_lock_mode;
             ctrl_lock_device  = gc.runtime.controller_lock_device;
             if (gc.runtime.has_deadzone) {
@@ -9151,6 +9336,10 @@ int main(int argc, char** argv) {
                 for (int i = 0; i < PSX_MAX_PLAYERS; ++i)
                     player_deadzone[i] = gc.runtime.deadzone;
             }
+            /* [controller] anti_deadzone — raises the minimum reported stick
+             * magnitude to compensate for a game's own internal deadzone. */
+            if (gc.runtime.has_anti_deadzone)
+                controller_anti_deadzone = gc.runtime.anti_deadzone;
             /* Console port for SCPH-1070 when offline/netplay arms multitap.
              * Most titles use Port 1; Bomberman Party Edition needs Port 2. */
             if (gc.runtime.has_multitap_port) {
@@ -9383,27 +9572,12 @@ int main(int argc, char** argv) {
 #endif
         }
     }
-    /* allow_hybrid=false removes Hybrid from the game's supported controller
-     * modes. Clamp an old persisted Hybrid value here as well as hiding it in
-     * recomp-ui, so launcher-less builds cannot revive an unsupported mode.
-     * Prefer each port's game-declared default; malformed/legacy configs that
-     * also default to Hybrid fall back to Analog, matching recomp-ui. */
-    if (!ctrl_allow_hybrid) {
-        for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
-            const int fallback =
-                ctrl_locked_mode[i] == PSXRecompV4::PAD_MODE_HYBRID
-                    ? PSXRecompV4::PAD_MODE_ANALOG : ctrl_locked_mode[i];
-            if (player_mode[i] == PSXRecompV4::PAD_MODE_HYBRID)
-                player_mode[i] = fallback;
-        }
-    }
-
-    /* A game may migrate Skip FMVs from generic Settings into its mod catalog.
-     * Clamp stale settings before seeding recomp-ui; an enabled activation
-     * plugin applies the feature after the final mod-plan commit. */
+    /* Skip FMVs is mod-owned on PSX. Clamp stale generic settings before
+     * seeding recomp-ui; an enabled activation plugin applies the feature
+     * after the final mod-plan commit. */
     if (!skip_fmv_offered && g_auto_skip_fmv) {
         std::fprintf(stdout,
-            "psxrecomp: Skip FMVs is mod-owned for this title; "
+            "psxrecomp: Skip FMVs is mod-owned on PSX; "
             "ignoring the legacy Settings value\n");
         g_auto_skip_fmv = 0;
     }
@@ -9428,13 +9602,11 @@ int main(int argc, char** argv) {
         g_frame_interpolation_fps = 0;
     }
 
-    /* [widescreen] offer=false: this title's widescreen is unported/unvalidated,
-     * so the launcher hides its toggle — and, same completeness treatment as
-     * lock_mode above, the runtime clamps the display aspect to native 4:3 here
-     * so a stale persisted 16:9 in settings.toml can't engage the hack in
-     * launcher-less builds either. */
+    /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
+     * aspect to native 4:3 so neither a legacy game.toml offer/default nor a
+     * stale settings.toml value can engage it before trusted mod activation. */
     if (!ws_offered && (g_video_aspect_num != 4 || g_video_aspect_den != 3)) {
-        std::fprintf(stdout, "psxrecomp: widescreen not offered for this title; "
+        std::fprintf(stdout, "psxrecomp: widescreen is mod-owned on PSX; "
                      "clamping display aspect %d:%d -> 4:3\n",
                      g_video_aspect_num, g_video_aspect_den);
         g_video_aspect_num = 4;
@@ -9524,6 +9696,19 @@ int main(int argc, char** argv) {
             }
         } catch (const std::exception& ex) {
             std::fprintf(stderr, "psxrecomp: game_options.toml ignored: %s\n", ex.what());
+        }
+    }
+
+    /* Scan <exe_dir>/mods and load persisted enable/option state. Everything
+     * downstream — the launcher Mods tab (gi.mods), disc patching, the
+     * psx_mod_set_* callbacks — is inert until this runs. */
+    {
+        std::string mod_error;
+        if (!PSXRecompV4::mod_runtime_initialize(
+                exe_dir_from_argv(argv[0]) / "mods", game_id,
+                game_entry_pc, text_guard_exe_path, &mod_error)) {
+            std::fprintf(stderr, "psxrecomp: mods unavailable: %s\n",
+                         mod_error.c_str());
         }
     }
 
@@ -9691,6 +9876,8 @@ int main(int argc, char** argv) {
             launcher_boot_timing_mark("host:after_sdl_init");
             recomp_launcher_set_preserve_sdl(1);
             int lr = 2; /* 0 = launch, 1 = quit, 2 = unavailable */
+            const bool bios_choice_supported =
+                psx_bios_has_selectable() != 0 || psx_bios_registry_count == 0;
             PSXRecompV4::UserSettings seed;
             seed.renderer = g_video_renderer;             seed.has_renderer = true;
             seed.supersampling = g_video_scale;           seed.has_supersampling = true;
@@ -9726,14 +9913,14 @@ int main(int argc, char** argv) {
                 seed.netplay_lobby_url = g_lnch_lobby_url;
                 seed.has_netplay_lobby_url = true;
             }
-            if (bios_explicit && bios_path && bios_path[0]) {
+            if (bios_choice_supported && bios_explicit && bios_path && bios_path[0]) {
                 seed.bios_path = bios_path;
                 seed.has_bios_path = true;
             }
             /* Hydrate launcher BIOS from bios.cfg when settings.toml has none,
              * and rewrite relative paths to absolute so reopen after generate
              * does not depend on cwd. */
-            if (!seed.has_bios_path) {
+            if (bios_choice_supported && !seed.has_bios_path) {
                 std::filesystem::path cached =
                     read_cached_path(argv[0], "bios.cfg");
                 if (!cached.empty()) {
@@ -9757,7 +9944,7 @@ int main(int argc, char** argv) {
             /* First-run setup: if nothing remembered, adopt a retail dump next
              * to the install (SCPH1001…). Missing → leave empty (OpenBIOS).
              * Never override an existing bios.cfg (including cleared OpenBIOS). */
-            if (!seed.has_bios_path) {
+            if (bios_choice_supported && !seed.has_bios_path) {
                 std::error_code ec;
                 const auto cfg = sidecar_cfg_path(argv[0], "bios.cfg");
                 if (!std::filesystem::exists(cfg, ec)) {
@@ -9828,8 +10015,8 @@ int main(int argc, char** argv) {
                 const int n = std::min(PSX_MAX_PLAYERS, RECOMP_LAUNCHER_MAX_PLAYERS);
                 for (int i = 0; i < n; ++i) {
                     const std::string& d = player_device[i];
-                    ls.player_src[i] = (d == "keyboard") ? 1
-                                       : (d == "none" || d.empty()) ? 0 : 2;
+                    ls.player_src[i] =
+                        PSXRecompV4::launcher_source_from_device(d);
                     /* Round to the nearest launcher percent. Truncation turned a
                      * saved 20% value (6553/32767) into 19%, which the launcher's
                      * 5% normalization then silently reduced to 15%. */
@@ -9949,20 +10136,25 @@ int main(int argc, char** argv) {
             gi.has_expected_crc     = 0;      /* the launcher's simple file-CRC doesn't fit
                                                   PSX multi-track discs — skip verification */
             gi.num_known_sha256     = 0;
-            gi.widescreen_supported = ws_offered ? 1 : 0;
+            gi.widescreen_supported = 0;
             gi.num_players          = game_players;
             gi.msu1_supported       = 0;
             gi.sram_path            = nullptr;   /* PSX uses memory cards, not SRAM -> hide SAVES */
+            /* BIOS row: ask the registry, not psx_bios_image, which is not
+             * populated until a backend is activated. With OpenBIOS AND a
+             * retail image linked, choosing retail (and clearing back to
+             * bundled) is exactly what the row is for. */
+            gi.has_bios             = psx_bios_has_selectable();
             /* Pad-mode + aspect capabilities sourced from game.toml
              * [controller]/[widescreen] via GameConfig. PSX always has pad modes. */
             gi.pad_mode_selectable  = ctrl_lock_mode ? 0 : 1;
-            gi.allow_hybrid         = ctrl_allow_hybrid ? 1 : 0;
             gi.locked_pad_mode      = ctrl_locked_mode[0];  /* game-declared default_mode */
             gi.lock_device          = ctrl_lock_device ? 1 : 0;
-            gi.aspect_mask          = 0x1 | (ws_offered ? 0x2 : 0) | (ws_ultrawide_offered ? 0x4 : 0);
+            gi.aspect_mask          = 0;
             gi.renderer_labels      = kPsxRendererLabels;
             gi.num_renderers        = vulkan_offered ? 3 : 2;
-            gi.has_skip_fmv         = skip_fmv_offered ? 1 : 0;
+            gi.has_frame_interp     = 0;
+            gi.has_skip_fmv         = 0;
             gi.has_turbo_loads      = turbo_loads_offered ? 1 : 0;
             /* Geometry precision is a property of the PS1 pipeline, not of any
              * particular disc, so every PSX title exposes it. */
@@ -9985,6 +10177,7 @@ int main(int argc, char** argv) {
             g_lnch_argv0           = argv[0];
             gi.disc_verify     = ae_disc_verify;
             gi.memcard_inspect = ae_memcard_inspect;
+            gi.mods            = PSXRecompV4::mod_runtime_launcher_provider();
             gi.bios_verify     = ae_bios_verify;
 #if defined(PSX_HAS_SETUP_WIZARD)
             /* MotK ships tools/prepare_disc.py (2448→2352). Offer it in the
@@ -10043,6 +10236,9 @@ int main(int argc, char** argv) {
             /* Local codegen: missing generated/ or MOTK_FORCE_SETUP opens the
              * generate & rebuild wizard (may also set prepare_required). */
             psx_game_codegen_setup_apply(&gi);
+            /* host_apply forces has_bios for OpenBIOS-only setup packages. */
+            if (gi.setup_wizard_supported)
+                gi.has_bios = 1;
 #endif
 #endif /* PSX_HAS_SETUP_WIZARD */
             launcher_boot_timing_mark("host:setup_checks_done");
@@ -10053,9 +10249,13 @@ int main(int argc, char** argv) {
             g_lnch_game_players = game_players;
             apply_offline_pad_count(game_players, multitap_enabled);
             psx_lobby_set_max_slots(game_players);
-            gi.netplay_supported =
-                (game_players >= 2 && game_players <= PSX_MAX_PLAYERS) ? 1 : 0;
-            gi.netplay = &g_lnch_netplay_callbacks;
+            g_lnch_netplay_available =
+                game_players >= 2 && game_players <= PSX_MAX_PLAYERS;
+            gi.netplay_supported = g_lnch_netplay_available ? 1 : 0;
+            gi.netplay = g_lnch_netplay_available
+                ? &g_lnch_netplay_callbacks : nullptr;
+#else
+            g_lnch_netplay_available = false;
 #endif
 
             char rui_out_disc[1024] = {0};
@@ -10103,8 +10303,8 @@ int main(int argc, char** argv) {
                         } else if (ls.player_gamepad_guid[i][0]) {
                             player_device[i] = ls.player_gamepad_guid[i];
                             player_mode[i] = ls.pad_mode[i];
-                        } else if (player_device[i] == "none" ||
-                                   player_device[i] == "keyboard") {
+                        } else if (PSXRecompV4::launcher_source_from_device(
+                                       player_device[i]) <= 1) {
                             player_device[i] = "gamepad";
                             player_mode[i] = ls.pad_mode[i];
                         } else {
@@ -10147,7 +10347,7 @@ int main(int argc, char** argv) {
                  * picker is hidden, but a stale settings file could still
                  * carry one) — resolve_bios_for_runtime would reject it and
                  * the identity gate makes it meaningless. */
-                if (ls.bios_path[0] && !psx_bios_image.image_bundled) {
+                if (bios_choice_supported && ls.bios_path[0]) {
                     std::filesystem::path resolved =
                         resolve_bios_path(ls.bios_path, argv[0]);
                     std::error_code ec;
@@ -10351,8 +10551,18 @@ int main(int argc, char** argv) {
     }
 
     {
+        /* Netplay must stay vanilla: launcher commit_netplay clears the plan,
+         * but a following offline-style commit would re-resolve enabled mods
+         * from disk. Skip commit entirely when this session is netplay. */
         std::string mod_error;
-        if (!PSXRecompV4::mod_runtime_commit(resolved_disc, &mod_error)) {
+        if (net_cfg.enabled) {
+            if (!PSXRecompV4::mod_runtime_clear_for_netplay(&mod_error)) {
+                std::fprintf(stderr,
+                             "psxrecomp: cannot clear mods for netplay: %s\n",
+                             mod_error.c_str());
+                return 1;
+            }
+        } else if (!PSXRecompV4::mod_runtime_commit(resolved_disc, &mod_error)) {
             std::fprintf(stderr, "psxrecomp: cannot launch with selected mods: %s\n",
                          mod_error.c_str());
             return 1;
@@ -10432,7 +10642,17 @@ int main(int argc, char** argv) {
 
     std::string bios_path_str    = resolved_bios.string();
     std::string memcard_dir_str  = memcard_dir.string();
-    std::string disc_path_str    = resolved_disc.string();
+    /* A disc-patching mod builds a private patched image; mount that instead of
+     * the stock disc, leaving the user's original untouched (master behaviour). */
+    const std::filesystem::path& mod_disc =
+        PSXRecompV4::mod_runtime_effective_disc_path();
+    std::string disc_path_str =
+        (mod_disc.empty() ? resolved_disc : mod_disc).string();
+    if (!mod_disc.empty()) {
+        std::fprintf(stdout,
+            "psxrecomp: stock disc remains %s; mounting private mod cache %s\n",
+            resolved_disc.string().c_str(), mod_disc.string().c_str());
+    }
 
 session_reboot:
     /* Rematch after lobby soft-return re-enters here with updated net_cfg. */
@@ -10618,6 +10838,29 @@ session_reboot:
         std::fprintf(stdout, "psxrecomp: SPU float-shadow enabled (verified-enhancement)\n");
     spu_init();
     cdrom_init(disc_path_str.empty() ? NULL : disc_path_str.c_str());
+
+    /* A disc was requested but nothing mounted. cdrom_init() is non-fatal here
+     * (BIOS-only targets run with an empty drive on purpose), so without this
+     * check the game would boot into an empty drive and render NOTHING -- the
+     * "black screen on a .cue that works as a .bin" symptom. The earlier
+     * validate_disc_for_launch() pass cannot catch it: identify_disc() reads
+     * the data track FILE directly, so a cue whose sheet the mounting reader
+     * rejects still shows a green "Disc verified" badge. Report the actual
+     * failure instead of leaving the player staring at black. */
+    if (!disc_path_str.empty() && !cdrom_has_disc()) {
+        const PSXRecompV4::DiscPathResolution r =
+            PSXRecompV4::resolve_disc_path(disc_path_str);
+        std::string detail =
+            "The disc image was found and verified, but the CD-ROM drive could "
+            "not mount it, so the game would boot with an empty drive.\n\n"
+            "Selected:\n" + disc_path_str;
+        if (r.mount != r.picked) detail += "\nMounted as:\n" + r.mount.string();
+        if (!r.note.empty())     detail += "\n\n" + r.note;
+        detail += "\n\nIf this is a .cue, check that every FILE line it names "
+                  "exists next to it; selecting the .bin directly also works.";
+        launcher_warning("Disc Could Not Be Mounted", detail);
+        return 1;
+    }
     for (const auto& route : warm_cd_routes) {
         cdrom_register_warm_route(route.arm_lba, route.lbas.data(),
                                   (int)route.lbas.size(),
@@ -10647,6 +10890,9 @@ session_reboot:
     if (game_config_path)
         arm_text_image_guard(text_guard_exe_path, text_guard_load_addr,
                              disc_path_str);
+    /* Executable/overlay patches from enabled mods, applied once the guard is
+     * armed so a patched image is never mistaken for a divergent one. */
+    mod_runtime_enable_disc_patches();
     {
         int divisor = 1; /* default: authentic 1x timing */
         if (disc_speed == "instant") divisor = 0;
@@ -11102,10 +11348,38 @@ session_reboot:
             bios_hle = (e[0] && e[0] != '0');
         if (const char* e = std::getenv("PSX_BIOS_HLE_KEEP_INTRO"))
             bios_hle_keep_intro = (e[0] && e[0] != '0');
-        const bool boot_skip =
-            (bios_hle && !bios_hle_keep_intro) || fast_boot;
-        psx_bios_hle_configure(bios_hle ? 1 : 0,
-                               (boot_skip && game_entry_pc != 0) ? 1 : 0);
+        /* The two axes (kernel-call HLE, boot-skip) have DIFFERENT per-image
+         * requirements, so they are decided in ONE pure place —
+         * psx_bios_hle_plan(), runtime/src/bios_hle_plan.c. Conflating them
+         * broke boot-skip on OpenBIOS: call-HLE needs deliver_event_ret, the
+         * boot-skip needs only shell_entry_phys, so refusing the former must
+         * not silently cancel the latter. */
+        PsxBiosHleRequest req;
+        req.bios_hle               = bios_hle ? 1 : 0;
+        req.keep_intro             = bios_hle_keep_intro ? 1 : 0;
+        req.fast_boot              = fast_boot ? 1 : 0;
+        req.have_deliver_event_ret = (psx_bios_image.deliver_event_ret != 0);
+        req.have_shell_entry       = (psx_bios_image.shell_entry_phys != 0);
+        req.have_game_entry        = (game_entry_pc != 0);
+        const PsxBiosHlePlan plan = psx_bios_hle_plan(req);
+
+        /* Call-HLE is a per-image capability, not just a preference: an image
+         * exporting no DeliverEvent anchor (OpenBIOS until validated) declares
+         * that axis STRUCTURALLY UNAVAILABLE — servicing B0 events with
+         * mismatched semantics wedges the guest in event waits. */
+        if (plan.call_hle_denied) {
+            std::fprintf(stdout,
+                "psxrecomp: bios_hle kernel-call tier unavailable on %s (no "
+                "DeliverEvent anchor); kernel calls stay LLE\n",
+                psx_bios_image.image_id);
+        }
+        if (plan.boot_skip_denied) {
+            std::fprintf(stdout,
+                "psxrecomp: BIOS boot-skip unavailable on %s (no shell entry "
+                "anchor); playing the real intro\n",
+                psx_bios_image.image_id);
+        }
+        psx_bios_hle_configure(plan.call_hle, plan.boot_skip);
         std::fprintf(stdout, "psxrecomp: bios_backend=%s  bios_boot=%s\n",
                      psx_bios_hle_backend_name(),
                      psx_bios_hle_boot_skip_enabled()
@@ -11468,8 +11742,8 @@ soft_return_lobby:
             const int n = std::min(PSX_MAX_PLAYERS, RECOMP_LAUNCHER_MAX_PLAYERS);
             for (int i = 0; i < n; ++i) {
                 const std::string& d = player_device[i];
-                ls.player_src[i] = (d == "keyboard") ? 1
-                                   : (d == "none" || d.empty()) ? 0 : 2;
+                ls.player_src[i] =
+                    PSXRecompV4::launcher_source_from_device(d);
                 ls.deadzone[i] = (player_deadzone[i] * 100 + 16383) / 32767;
                 ls.pad_mode[i] = (ls.player_src[i] == 1)
                                     ? PSXRecompV4::PAD_MODE_DIGITAL
@@ -11497,8 +11771,8 @@ soft_return_lobby:
         gi.resume_netplay_endpoint = ae_np_lan_endpoint_cstr();
         gi.disc_verify = ae_disc_verify;
         gi.memcard_inspect = ae_memcard_inspect;
+        gi.mods = PSXRecompV4::mod_runtime_launcher_provider();
         gi.pad_mode_selectable = ctrl_lock_mode ? 0 : 1;
-        gi.allow_hybrid = ctrl_allow_hybrid ? 1 : 0;
         gi.locked_pad_mode = ctrl_locked_mode[0];
         gi.lock_device = ctrl_lock_device ? 1 : 0;
 #if defined(PSX_HAS_SETUP_WIZARD) && defined(PSX_HAS_GAME_CODEGEN)
@@ -11594,8 +11868,8 @@ soft_return_lobby:
                     } else if (ls.player_gamepad_guid[i][0]) {
                         player_device[i] = ls.player_gamepad_guid[i];
                         player_mode[i] = ls.pad_mode[i];
-                    } else if (player_device[i] == "none" ||
-                               player_device[i] == "keyboard") {
+                    } else if (PSXRecompV4::launcher_source_from_device(
+                                   player_device[i]) <= 1) {
                         player_device[i] = "gamepad";
                         player_mode[i] = ls.pad_mode[i];
                     } else {
@@ -11689,6 +11963,27 @@ soft_return_lobby:
                 default: g_video_aspect_num = 4;  g_video_aspect_den = 3; break;
             }
             g_video_win_w = ls.window_width > 0 ? ls.window_width : g_video_win_w;
+            {
+                std::string mod_error;
+                if (net_cfg.enabled) {
+                    if (!PSXRecompV4::mod_runtime_clear_for_netplay(&mod_error)) {
+                        std::fprintf(stderr,
+                                     "psxrecomp: cannot clear mods for netplay "
+                                     "rematch: %s\n",
+                                     mod_error.c_str());
+                        SDL_Quit();
+                        return 1;
+                    }
+                } else if (!PSXRecompV4::mod_runtime_commit(resolved_disc,
+                                                            &mod_error)) {
+                    std::fprintf(stderr,
+                                 "psxrecomp: cannot relaunch with selected "
+                                 "mods: %s\n",
+                                 mod_error.c_str());
+                    SDL_Quit();
+                    return 1;
+                }
+            }
             std::printf("psxrecomp: rematch from lobby (netplay=%d)\n",
                         net_cfg.enabled ? 1 : 0);
             std::fflush(stdout);

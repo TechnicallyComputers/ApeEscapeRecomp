@@ -267,6 +267,7 @@ set(PSXRECOMP_RUNTIME_SOURCES
     ${PSXRECOMP_ROOT}/runtime/src/crash_trace.c
     ${PSXRECOMP_ROOT}/runtime/src/freeze_heartbeat.c
     ${PSXRECOMP_ROOT}/runtime/src/gte.cpp
+    ${PSXRECOMP_ROOT}/runtime/src/nd_intro_ot.c
     ${PSXRECOMP_ROOT}/runtime/src/crc32.c
     ${PSXRECOMP_ROOT}/runtime/src/psx_sha256.c
     ${PSXRECOMP_ROOT}/runtime/src/disc_identity.cpp
@@ -762,6 +763,10 @@ function(psxrecomp_add_runtime_target target)
         ${PSXRT_EXTRAS_SOURCES}
     )
     target_link_libraries(${target} PRIVATE chdr-static)
+    # audio_trace.c uses C11 atomics. Make the runtime's actual language
+    # requirement explicit instead of relying on a parent project's global
+    # CMAKE_C_STANDARD setting.
+    target_compile_features(${target} PRIVATE c_std_11)
 
     # Game-specific executable name. Every title instantiates this function with
     # the same CMake target name ("psx-runtime"), so without this they ALL produce
@@ -841,9 +846,18 @@ function(psxrecomp_add_runtime_target target)
                 "  (build that tool first if needed; see psxrecomp/docs/BUILDING.md). "
                 "This is expected on a fresh checkout before the first generation.")
         endif()
+        # Pass paths via a list file — large shard counts (hundreds of
+        # generated/*_full_*.c) make -DSOURCES=... exceed Windows' ~8191-char
+        # CreateProcess limit ("The system cannot execute the specified program").
+        set(_psxrt_gen_list
+            "${CMAKE_CURRENT_BINARY_DIR}/${target}_generated_sources.txt")
+        file(WRITE "${_psxrt_gen_list}" "")
+        foreach(_g IN LISTS _game_generated_check)
+            file(APPEND "${_psxrt_gen_list}" "${_g}\n")
+        endforeach()
         add_custom_target(${target}_require_generated
             COMMAND ${CMAKE_COMMAND}
-                    "-DSOURCES=${_game_generated_check}"
+                    "-DSOURCES_FILE=${_psxrt_gen_list}"
                     "-DTARGET=${target}"
                     "-DGAME_CONFIG=${PSXRT_DEFAULT_GAME_CONFIG_PATH}"
                     "-DRECOMPILER=${_psxrt_recompiler_hint}"
@@ -949,6 +963,7 @@ function(psxrecomp_add_runtime_target target)
         PSX_GAME_VERSION="${PSXRT_GAME_VERSION}"
         PSX_MAX_PLAYERS=${PSXRT_MAX_PLAYERS}
         FMT_HEADER_ONLY=1
+        $<$<PLATFORM_ID:Windows>:NOMINMAX>
         $<$<BOOL:${PSX_SDL3}>:PSX_SDL3=1>
         $<$<CXX_COMPILER_ID:MSVC>:SDL_MAIN_HANDLED>
     )
@@ -1280,6 +1295,11 @@ function(psxrecomp_add_runtime_target target)
         endif()
     elseif(MSVC)
         target_compile_options(${target} PRIVATE /GS- /guard:cf-)
+        # Visual Studio project files cannot represent language-specific target
+        # options on a mixed C/C++ target. Scope the experimental MSVC atomics
+        # switch to the one C source that needs it instead.
+        set_property(SOURCE ${PSXRECOMP_ROOT}/runtime/src/audio_trace.c
+            APPEND PROPERTY COMPILE_OPTIONS /experimental:c11atomics)
         target_link_options(${target} PRIVATE /STACK:67108864,67108864 /GUARD:NO)
         # No console window in Release MSVC builds. /ENTRY keeps main() as
         # the entry point (not WinMain) while switching to the Windows subsystem.
