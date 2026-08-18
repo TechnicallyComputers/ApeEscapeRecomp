@@ -1,0 +1,39 @@
+# [widescreen] candidates from `psxrecomp-analyze --scan-widescreen`.
+# Static analysis only — no runtime, trace, or overlay capture was read.
+#
+# These are CANDIDATES. Every one satisfies the instruction form
+# code_generator.cpp requires, so none can break the build, but only
+# playtesting shows whether a site is the right one to widen.
+# Paste into game.toml and cut what does not help.
+
+[widescreen.cull]
+auto_screen_x = true   # 15 function(s) carry the screen-extent signature
+# Discovered from the image: width/height compare immediates scored by
+# CO-OCCURRENCE in the same function (the screen-extent signature),
+# weighted toward GTE code and the console's real display modes.
+# Verify before trusting — extra entries only widen what auto_screen_x
+# considers, but a wrong one widens the wrong compare.
+screen_w_imms = ["0x100", "0x101", "0x102", "0x180", "0x181"]
+screen_h_imms = ["0xF0", "0xF1"]
+
+# Horizontal-margin adds (addi/addiu).
+#   0x80059D28  addiu   $v0, $t0, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x800699F4  addiu   $v0, $a3, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006AE04  addiu   $v0, $t2, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006D87C  addiu   $v0, $a1, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006DE40  addiu   $v0, $v0, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006F14C  addiu   $v0, $v0, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006F538  addiu   $v0, $v0, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x80084430  addiu   $v0, $v0, 32         masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+bias_sites = ["0x80059D28", "0x800699F4", "0x8006AE04", "0x8006D87C", "0x8006DE40", "0x8006F14C", "0x8006F538", "0x80084430"]
+
+# X window compares paired with the bias above (sltiu).
+#   0x80059D30  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x800699FC  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006AE0C  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006D884  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006DE44  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006F150  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x8006F540  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+#   0x80084434  sltiu   $v0, $v0, 449        masked-u16 X window: +32 bias, sltiu 449 = W(385) + 2*32
+range_sites = ["0x80059D30", "0x800699FC", "0x8006AE0C", "0x8006D884", "0x8006DE44", "0x8006F150", "0x8006F540", "0x80084434"]
